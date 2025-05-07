@@ -1,8 +1,16 @@
-import os, configparser
-from Py4GWCoreLib import Player, Party, PyImGui
-from Blessing_Core import BlessingRunner
-import Verify_Blessing
+# Blessing_UI.py
+import os
+import tempfile
+import configparser
 
+from typing import Set
+from Py4GWCoreLib import Player, Party, PyImGui
+from Verify_Blessing import has_any_blessing
+from Blessing_Core import BlessingRunner, FLAG_DIR
+
+# -----------------------------------------------------------------------------
+# 1) Run-flag INI coordination (shared by all clients)
+# -----------------------------------------------------------------------------
 INI_PATH = os.path.join(os.getcwd(), "Blessed_Config.ini")
 
 def _read_ini() -> configparser.ConfigParser:
@@ -21,57 +29,62 @@ def write_run_flag(val: bool):
     with open(INI_PATH, "w") as f:
         cp.write(f)
 
+# -----------------------------------------------------------------------------
+# 2) UI configuration (you can load these from your INI as well)
+# -----------------------------------------------------------------------------
 cfg = _read_ini()
 LEADER_UI     = cfg.getboolean("Settings",   "LeaderUI",    fallback=True)
 PER_CLIENT_UI = cfg.getboolean("Settings",   "PerClientUI", fallback=False)
 AUTO_RUN_ALL  = cfg.getboolean("BlessingRun","AutoRunAll",  fallback=True)
 
-_runner    = BlessingRunner()
-_running   = False
-_last_flag = False
-_consumed  = False
+# -----------------------------------------------------------------------------
+# 3) Shared temp-dir for per-client blessing flags
+# -----------------------------------------------------------------------------
+# Make sure all processes on this machine point at the same directory:
+FLAG_DIR = os.path.join(tempfile.gettempdir(), "GuildWarsBlessFlags")
+os.makedirs(FLAG_DIR, exist_ok=True)
 
-def get_party_players_info():
-    slots = Party.GetPlayers()
-    leader = Party.GetPartyLeaderID()
-    info = []
-    for slot in slots:
-        ln = slot.login_number
-        ag = Party.Players.GetAgentIDByLoginNumber(ln)
-        nm = Party.Players.GetPlayerNameByLoginNumber(ln)
-        info.append({
-            "login":        ln,
-            "name":         nm,
-            "is_leader":    (ag == leader),
-            "has_blessing": bool(Verify_Blessing.find_first_active_blessing(ag))
-        })
-    return info
+# -----------------------------------------------------------------------------
+# 4) FSM runner + shared-flag state
+# -----------------------------------------------------------------------------
+_runner     = BlessingRunner()
+_running    = False
+_last_flag  = False
+_consumed   = False
 
 def on_imgui_render(me: int):
     global _running, _last_flag, _consumed
 
-    # Detect shared‐flag toggles
+    # --- A) Sync this client’s own flag file with its buff state ---
+    my_id   = Player.GetAgentID()
+    my_file = os.path.join(FLAG_DIR, f"{my_id}.flag")
+
+    if has_any_blessing(my_id):
+        if not os.path.exists(my_file):
+            open(my_file, "w").close()
+    else:
+        if os.path.exists(my_file):
+            os.remove(my_file)
+
+    # --- B) Run-flag coordination ---
     flag = read_run_flag()
     if flag != _last_flag:
         _consumed  = False
         _last_flag = flag
 
-    # If flag is set and not yet consumed, start FSM
     if flag and not _running and not _consumed:
         _runner.start()
-        _running  = True
-        _consumed = True
+        _running, _consumed = True, True
 
-    # Advance FSM
     if _running:
-        done, success = _runner.update()
+        done, _ = _runner.update()
         if done:
-            # Leader clears the flag after all finish
+            # if leader in party-mode, leader clears the flag
             if AUTO_RUN_ALL and Party.GetPartyLeaderID() == me:
                 write_run_flag(False)
             _running = False
 
-    # Draw only for leader (or if per-client UI is allowed)
+    # --- C) Draw UI only for leader (or if per-client UI allowed) ---
     slots = Party.GetPlayers()
     if not slots:
         return
@@ -79,34 +92,41 @@ def on_imgui_render(me: int):
     if not (LEADER_UI and is_leader) and not PER_CLIENT_UI:
         return
 
+    # --- D) Read *all* client flag files to see who’s blessed ---
+    blessed_ids: Set[int] = set()
+    for fn in os.listdir(FLAG_DIR):
+        if fn.endswith(".flag"):
+            try:
+                blessed_ids.add(int(fn[:-5]))
+            except ValueError:
+                pass
+
+    # --- E) Render the window ---
     PyImGui.begin("Blessing Controller")
     PyImGui.text("Party Blessing Status:")
     PyImGui.separator()
 
-    # List every party member and re-check blessing by agent ID
     for slot in slots:
         ln = slot.login_number
         ag = Party.Players.GetAgentIDByLoginNumber(ln)
         nm = Party.Players.GetPlayerNameByLoginNumber(ln)
         role = "Leader" if ag == Party.GetPartyLeaderID() else "Ai Hero"
-        blessed = bool(Verify_Blessing.find_first_active_blessing(ag))
-        mark = "Blessed" if blessed else "Unholy"
+        mark = "Blessed" if ag in blessed_ids else "Unholy"
         PyImGui.text(f"[{ln}] {nm} ({role}) [{mark}]")
 
     PyImGui.separator()
-    # Run‐sequence button
     if not _running and PyImGui.button("Run Blessing Sequence"):
         if AUTO_RUN_ALL and not is_leader:
-            # non‐leaders do nothing in party mode
+            # non-leaders do nothing on button press
             pass
         else:
             if AUTO_RUN_ALL and is_leader:
-                # Leader in party mode: flip flag *and* start locally
+                # leader flips the shared flag (and starts locally)
                 write_run_flag(True)
                 _runner.start()
                 _running = True
             else:
-                # Single‐client mode
+                # single-client / per-client mode
                 _runner.start()
                 _running = True
 
