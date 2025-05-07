@@ -1,91 +1,108 @@
-import math, time
-from Py4GWCoreLib import *
+import math, time, os, tempfile
 from enum import Enum, auto
 from typing import Optional, Tuple, List, Dict
-from Py4GWCoreLib import Agent, AgentArray, Player, Console
+from Py4GWCoreLib import *
+from Py4GWCoreLib import Agent, AgentArray, Player, Console, Party
 from Py4GW_widget_manager import get_widget_handler
 from Py4GWCoreLib.Blessing_dialog_helper import is_npc_dialog_visible, click_dialog_button
 from Verify_Blessing import has_any_blessing
 
 _widget_handler = get_widget_handler()
 
+# — per-client flag file in a shared temp directory —
+FLAG_DIR = os.path.join(tempfile.gettempdir(), "GuildWarsBlessFlags")
+os.makedirs(FLAG_DIR, exist_ok=True)
+
+def _flag_path() -> str:
+    return os.path.join(FLAG_DIR, f"{Player.GetAgentID()}.flag")
+
+def _write_flag():
+    open(_flag_path(), "w").close()
+
+def _remove_flag():
+    try:
+        os.remove(_flag_path())
+    except OSError:
+        pass
+
+# how long to wait in VERIFY for the buff to register
+_VERIFY_TIMEOUT = 1.0  # seconds
+
 class BlessingNpc(Enum):
-    Sunspear_Scout          = (4778, 4776)
-    Wandering_Priest        = (5384, 5383)
-    Vabbian_Scout           = (5632,)
-    Ghostly_Scout           = (5547,)
-    Ghostly_Priest          = (5615)
-    Whispers_Informants     = (5218, 5683)
-    Kurzick_Priest          = (593, 912)
-    Luxon_Priest            = (1947, 3641)
-    Beacons_of_Droknar      = (5865,)
-    Ascalonian_Refugees     = (1986, 1987, 6044, 6045)
-    Asuran_Krewe            = (6755, 6756)
-    Norn_Hunters            = (6374, 6380)
+    Sunspear_Scout      = (4778, 4776)
+    Wandering_Priest    = (5384, 5383)
+    Vabbian_Scout       = (5632,)
+    Ghostly_Scout       = (5547,)
+    Ghostly_Priest      = (5615,)
+    Whispers_Informants = (5218, 5683)
+    Kurzick_Priest      = (593, 912, 3426)
+    Luxon_Priest        = (1947, 3641)
+    Beacons_of_Droknar  = (5865,)
+    Ascalonian_Refugees = (1986, 1987, 6044, 6045)
+    Asuran_Krewe        = (6755, 6756)
+    Norn_Hunters        = (6374, 6380)
 
     def __init__(self, *mids: int):
         self.model_ids = mids
 
-# Only non‐Norn NPCs need pre-defined click sequences
+# generic sequences for non-priest NPCs
 DIALOG_SEQUENCES: Dict[BlessingNpc, List[int]] = {
-    BlessingNpc.Sunspear_Scout:     [1], #ok
-    BlessingNpc.Wandering_Priest:   [1], #ok
-    BlessingNpc.Ghostly_Scout:      [1],
+    BlessingNpc.Sunspear_Scout:   [1],
+    BlessingNpc.Wandering_Priest: [1],
+    BlessingNpc.Ghostly_Scout:    [1],
     BlessingNpc.Kurzick_Priest:   [1, 2, 1, 1],
     BlessingNpc.Luxon_Priest:     [1, 2, 1, 1],
 }
 
 def get_blessing_npc() -> Tuple[Optional[BlessingNpc], Optional[int]]:
-    me_x, me_y = Player.GetXY()
-    best: Tuple[Optional[BlessingNpc], Optional[int]] = (None, None)
-    best_dist = float('inf')
-    for member in BlessingNpc:
-        for agent in AgentArray.GetAgentArray():
-            if Agent.GetModelID(agent) in member.model_ids:
-                ax, ay = Agent.GetXY(agent)
-                d = math.dist((me_x, me_y), (ax, ay))
-                if d < best_dist:
-                    best_dist, best = d, (member, agent)
-    if best[1] is not None:
+    mx, my = Player.GetXY()
+    best, best_d = (None, None), float('inf')
+    for npc in BlessingNpc:
+        for ag in AgentArray.GetAgentArray():
+            if Agent.GetModelID(ag) in npc.model_ids:
+                ax, ay = Agent.GetXY(ag)
+                d = math.dist((mx, my), (ax, ay))
+                if d < best_d:
+                    best, best_d = (npc, ag), d
+    if best[1]:
         Player.ChangeTarget(best[1])
     return best
 
 class _Mover:
     def __init__(self):
-        self.agent: Optional[int] = None
-        self.dist = 0.0
-        self.done = False
+        self.agent = None
+        self.dist  = 0.0
+        self.done  = False
 
     def start(self, agent: int, dist: float):
         self.agent, self.dist, self.done = agent, dist, False
 
     def update(self) -> bool:
+        # cancel movement if a dialog popped
         if is_npc_dialog_visible():
-            self.done = True
-            self.agent = None
+            self.done, self.agent = True, None
             return False
-        if self.agent is None or self.done:
+        if not self.agent or self.done:
             return False
+
         mx, my = Player.GetXY()
         tx, ty = Agent.GetXY(self.agent)
         if math.dist((mx, my), (tx, ty)) <= self.dist:
             Player.Interact(self.agent)
-            self.done = True
-            self.agent = None
+            self.done, self.agent = True, None
             return True
         Player.Move(tx, ty)
         return False
 
 _mover = _Mover()
-
-def move_interact_blessing_npc(agent: Optional[int], interact_distance: int = 100) -> bool:
+def move_interact_blessing_npc(agent: Optional[int], dist: float = 100.0) -> bool:
     if agent is None:
         return False
     if _mover.agent != agent or _mover.done:
-        _mover.start(agent, interact_distance)
+        _mover.start(agent, dist)
     return _mover.update()
 
-class _BlessingState(Enum):
+class _BlessState(Enum):
     IDLE        = auto()
     APPROACH    = auto()
     DIALOG_WAIT = auto()
@@ -94,99 +111,135 @@ class _BlessingState(Enum):
     DONE        = auto()
 
 class BlessingRunner:
-    def __init__(self, interact_distance: int = 100):
+    def __init__(self, interact_distance: float = 100.0):
         self.interact_distance = interact_distance
-        self.state = _BlessingState.IDLE
+        self.state    = _BlessState.IDLE
         self.member: Optional[BlessingNpc] = None
-        self.agent:  Optional[int] = None
+        self.agent:  Optional[int]         = None
+
+        # generic NPC state
         self.dialog_seq: List[int] = []
-        self.seq_idx = 0
-        self.success = False
+        self.seq_idx: int          = 0
+
+        # special flows
         self._norn_stage = 0
-        self._wait_start = 0.0
+        self._kl_stage   = 0
+
+        self._wait_start   = 0.0
+        self._verify_start = 0.0
+        self.success       = False
 
     def start(self):
+        _remove_flag()
         ConsoleLog("BlessingRunner", "Starting blessing sequence", Console.MessageType.Info)
         _widget_handler.disable_widget("HeroAI")
 
         self.member, self.agent = get_blessing_npc()
-        if self.member is None or self.agent is None:
+        if not self.member or not self.agent:
             ConsoleLog("BlessingRunner", "No blessing NPC found", Console.MessageType.Warning)
-            self.state, self.success = _BlessingState.DONE, False
+            self.state, self.success = _BlessState.DONE, False
             _widget_handler.enable_widget("HeroAI")
             return
 
-        if self.member is BlessingNpc.Norn_Hunters:
-            self.dialog_seq = [1]  # Norn handled in special flow
-        else:
-            self.dialog_seq = DIALOG_SEQUENCES.get(self.member, [1, 1])
+        # reset all state machines
+        self.state         = _BlessState.APPROACH
+        self.seq_idx       = 0
+        self.dialog_seq    = []
+        self._norn_stage   = 0
+        self._kl_stage     = 0
+        self._wait_start   = 0.0
+        self._verify_start = 0.0
+        self.success       = False
 
-        self.seq_idx = 0
-        self._norn_stage = 0
-        self.state = _BlessingState.APPROACH
+        # prepare generic dialog list only for non-priest NPCs
+        if self.member not in (BlessingNpc.Norn_Hunters,
+                               BlessingNpc.Kurzick_Priest,
+                               BlessingNpc.Luxon_Priest):
+            self.dialog_seq = DIALOG_SEQUENCES.get(self.member, [1])
 
     def update(self) -> Tuple[bool, bool]:
-        if self.state == _BlessingState.IDLE:
-            return False, False
-
-        # Norn special flow
+        # 1) Norn-hunter special flow
         if self.member is BlessingNpc.Norn_Hunters:
             if self._tick_norn():
                 _widget_handler.enable_widget("HeroAI")
                 return True, self.success
             return False, False
 
-        # Approach & interact
-        if self.state == _BlessingState.APPROACH:
-            if move_interact_blessing_npc(self.agent, self.interact_distance):
-                self.state = _BlessingState.DIALOG_WAIT
-                self._wait_start = time.time()
-            return False, False
-
-        # Wait for dialog window
-        if self.state == _BlessingState.DIALOG_WAIT:
-            if is_npc_dialog_visible():
-                self.state = _BlessingState.DIALOG_NEXT
-            elif time.time() - self._wait_start > 10:
-                self.state, self.success = _BlessingState.DONE, False
+        # 2) Kurzick/Luxon priest special flow
+        if self.member in (BlessingNpc.Kurzick_Priest, BlessingNpc.Luxon_Priest):
+            if self._tick_kurzick_luxon():
                 _widget_handler.enable_widget("HeroAI")
                 return True, self.success
             return False, False
 
-        # Click through dialog options
-        if self.state == _BlessingState.DIALOG_NEXT:
+        # 3) Generic FSM for all other NPCs
+        if self.state == _BlessState.IDLE:
+            return False, False
+
+        # APPROACH
+        if self.state == _BlessState.APPROACH:
+            if move_interact_blessing_npc(self.agent, self.interact_distance):
+                self.state = _BlessState.DIALOG_WAIT
+                self._wait_start = time.time()
+            return False, False
+
+        # DIALOG_WAIT
+        if self.state == _BlessState.DIALOG_WAIT:
+            if is_npc_dialog_visible():
+                self.state = _BlessState.DIALOG_NEXT
+            elif time.time() - self._wait_start > 10.0:
+                self.state, self.success = _BlessState.DONE, False
+                _widget_handler.enable_widget("HeroAI")
+                return True, False
+            return False, False
+
+        # DIALOG_NEXT
+        if self.state == _BlessState.DIALOG_NEXT:
             if self.seq_idx < len(self.dialog_seq):
                 click_dialog_button(self.dialog_seq[self.seq_idx])
                 self.seq_idx += 1
+                # wait for next dialog
+                self.state = _BlessState.DIALOG_WAIT
+                self._wait_start = time.time()
                 return False, False
-            else:
-                self.state = _BlessingState.VERIFY
-                return False, False
+            # done → VERIFY
+            self.state = _BlessState.VERIFY
+            self._verify_start = time.time()
+            return False, False
 
-        # Verify blessing effect
-        if self.state == _BlessingState.VERIFY:
-            self.success = has_any_blessing(Player.GetAgentID())
+        # VERIFY
+        if self.state == _BlessState.VERIFY:
+            if has_any_blessing(Player.GetAgentID()):
+                self.success = True
+                _write_flag()
+                _widget_handler.enable_widget("HeroAI")
+                self.state = _BlessState.DONE
+                return True, True
+            if time.time() - self._verify_start < _VERIFY_TIMEOUT:
+                return False, False
+            self.success = False
             _widget_handler.enable_widget("HeroAI")
-            self.state = _BlessingState.DONE
-            return True, self.success
+            self.state = _BlessState.DONE
+            return True, False
 
-        # DONE state
-        if self.state == _BlessingState.DONE:
+        # DONE
+        if self.state == _BlessState.DONE:
             _widget_handler.enable_widget("HeroAI")
             return True, self.success
 
         return False, False
 
+    # ——— Norn-hunter logic (unchanged) ———
     def _tick_norn(self) -> bool:
-        # Stage 0: approach + interact (challenge)
+        # Stage 0: approach & interact
         if self._norn_stage == 0:
             if move_interact_blessing_npc(self.agent, self.interact_distance):
-                ConsoleLog("BlessingRunner", "Norn: interacted, waiting for dialog", Console.MessageType.Debug)
+                ConsoleLog("BlessingRunner", "Norn: interacted, waiting for dialog…", Console.MessageType.Debug)
                 self._wait_start = time.time()
                 self._norn_stage = 1
             return False
 
-        # Stage 1: wait for the “challenge” dialog to appear
+        # Stage 1: wait for challenge dialog
         if self._norn_stage == 1:
             if is_npc_dialog_visible():
                 ConsoleLog("BlessingRunner", "Norn: dialog visible, clicking accept", Console.MessageType.Debug)
@@ -194,21 +247,17 @@ class BlessingRunner:
                 self._norn_stage = 2
             elif time.time() - self._wait_start > 8:
                 ConsoleLog("BlessingRunner", "Norn: dialog never showed up, aborting", Console.MessageType.Warning)
-                return True   # bail out
+                return True
             return False
 
-        # Stage 2: Check if blessing is resived or if norn guy turned hostile
+        # Stage 2: either already blessed or wait for hostility
         if self._norn_stage == 2:
-            # If we already got the blessing (no fight needed), bail out
             if has_any_blessing(Player.GetAgentID()):
-                ConsoleLog("BlessingRunner", "Norn: blessing already obtained, exiting", Console.MessageType.Debug)
-                _widget_handler.enable_widget("HeroAI")
+                ConsoleLog("BlessingRunner", "Norn: already blessed, exiting", Console.MessageType.Debug)
+                _write_flag()
                 self.success = True
                 return True
-
-            # Otherwise wait for the Norn to turn hostile
-            if Agent.GetAllegiance(self.agent) == 3:  # Enemy
-                ConsoleLog("BlessingRunner", "Stuck here", Console.MessageType.Debug)
+            if Agent.GetAllegiance(self.agent) == 3:
                 _widget_handler.enable_widget("HeroAI")
                 self._norn_stage = 3
             return False
@@ -221,12 +270,131 @@ class BlessingRunner:
                 self._norn_stage = 4
             return False
 
-        # Stage 4: final interaction & blessing click
+        # Stage 4: final interact & blessing
         if self._norn_stage == 4:
             if move_interact_blessing_npc(self.agent, self.interact_distance):
                 ConsoleLog("BlessingRunner", "Norn: final dialog click", Console.MessageType.Debug)
                 click_dialog_button(1)
                 self.success = has_any_blessing(Player.GetAgentID())
+                if self.success:
+                    _write_flag()
+                return True
+            return False
+
+        return False
+
+    # ——— Kurzick / Luxon Priest logic ———
+    def _tick_kurzick_luxon(self) -> bool:
+        """4-step dialog [1,2,1,1] → fallback [1,1], then verify."""
+        npc_name = "Kurzick Priest" if self.member is BlessingNpc.Kurzick_Priest else "Luxon Priest"
+        now = time.time()
+
+        # Stage 0: approach & interact
+        if self._kl_stage == 0:
+            if move_interact_blessing_npc(self.agent, self.interact_distance):
+                ConsoleLog("BlessingRunner", f"{npc_name}: interacted, waiting for dialog…", Console.MessageType.Debug)
+                self._wait_start = now
+                self._kl_stage = 1
+            return False
+
+        # Stage 1: initial dialog → click “1”
+        if self._kl_stage == 1:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (request)", Console.MessageType.Debug)
+                click_dialog_button(1)
+                self._wait_start = now
+                self._kl_stage = 2
+            elif now - self._wait_start > 8.0:
+                ConsoleLog("BlessingRunner", f"{npc_name}: dialog never appeared, aborting", Console.MessageType.Warning)
+                self.success = False
+                return True
+            return False
+
+        # Stage 2: donation menu → click “2”
+        if self._kl_stage == 2:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: click 2 (high donation)", Console.MessageType.Debug)
+                click_dialog_button(2)
+                self._wait_start = now
+                self._kl_stage = 3
+            elif now - self._wait_start > 8.0:
+                ConsoleLog("BlessingRunner", f"{npc_name}: menu absent, aborting", Console.MessageType.Warning)
+                self.success = False
+                return True
+            return False
+
+        # Stage 3: confirmation → click “1”
+        if self._kl_stage == 3:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (confirm large)", Console.MessageType.Debug)
+                click_dialog_button(1)
+                self._wait_start = now
+                self._kl_stage = 4
+            elif now - self._wait_start > 2.0:
+                ConsoleLog("BlessingRunner", f"{npc_name}: large donation failed, fallback", Console.MessageType.Warning)
+                self._kl_stage = 5
+                self._wait_start = 0.0
+            return False
+
+        # Stage 4: final dialog → click “1” or immediate verify
+        if self._kl_stage == 4:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (final close)", Console.MessageType.Debug)
+                click_dialog_button(1)
+                self.success = has_any_blessing(Player.GetAgentID())
+                if self.success: _write_flag()
+                return True
+            if not is_npc_dialog_visible():
+                ConsoleLog("BlessingRunner", f"{npc_name}: no final dialog, verify", Console.MessageType.Debug)
+                self.success = has_any_blessing(Player.GetAgentID())
+                if self.success: _write_flag()
+                return True
+            return False
+
+        # Stages 5–8: fallback small-donation [1,1]
+        #  5) re-approach & interact
+        if self._kl_stage == 5:
+            if move_interact_blessing_npc(self.agent, self.interact_distance):
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback interact", Console.MessageType.Debug)
+                self._wait_start = now
+                self._kl_stage = 6
+            return False
+        #  6) fallback request → click 1
+        if self._kl_stage == 6:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback click 1", Console.MessageType.Debug)
+                click_dialog_button(1)
+                self._wait_start = now
+                self._kl_stage = 7
+            elif now - self._wait_start > 8.0:
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback dialog never appeared, abort", Console.MessageType.Warning)
+                self.success = False
+                return True
+            return False
+        #  7) fallback confirm → click 1
+        if self._kl_stage == 7:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback confirm small donation", Console.MessageType.Debug)
+                click_dialog_button(1)
+                self._wait_start = now
+                self._kl_stage = 8
+            elif now - self._wait_start > 8.0:
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback confirm never appeared, abort", Console.MessageType.Warning)
+                self.success = False
+                return True
+            return False
+        #  8) fallback finalize → click 1 or immediate verify
+        if self._kl_stage == 8:
+            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback final close", Console.MessageType.Debug)
+                click_dialog_button(1)
+                self.success = has_any_blessing(Player.GetAgentID())
+                if self.success: _write_flag()
+                return True
+            if not is_npc_dialog_visible():
+                ConsoleLog("BlessingRunner", f"{npc_name}: fallback done, verify", Console.MessageType.Debug)
+                self.success = has_any_blessing(Player.GetAgentID())
+                if self.success: _write_flag()
                 return True
             return False
 
