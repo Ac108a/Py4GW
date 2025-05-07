@@ -31,7 +31,7 @@ class Blessings(Enum):
     # — Eye of the North —
     Dwarven_Raider           = (2445, 2446, 2447, 2448, 2549, 2565, 2566, 2567, 2568)
     Vanguard_Patrol          = (2457, 2458, 2459, 2460, 2550, 2578)
-    Asuran_Bodyguard         = (2434, 2435, 2436, 2481, 2548)
+    Asuran_Bodyguard         = (2434, 2435, 2436, 2481, 2548, 2552)
     Norn_Hunting_Party       = (2469, 2470, 2471, 2472, 2551, 2591, 2592, 2593, 2594)
 
     def __init__(self, *ids):
