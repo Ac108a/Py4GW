@@ -4,7 +4,7 @@ from typing import Optional, Tuple, List, Dict
 from Py4GWCoreLib import *
 from Py4GWCoreLib import Agent, AgentArray, Player, Console, Party
 from Py4GW_widget_manager import get_widget_handler
-from Py4GWCoreLib.Blessing_dialog_helper import is_npc_dialog_visible, click_dialog_button
+from Py4GWCoreLib.Blessing_dialog_helper import is_npc_dialog_visible, click_dialog_button, get_dialog_button_count
 from Verify_Blessing import has_any_blessing
 
 _widget_handler = get_widget_handler()
@@ -39,7 +39,7 @@ class BlessingNpc(Enum):
     Luxon_Priest        = (1947, 3641)
     Beacons_of_Droknar  = (5865,)
     Ascalonian_Refugees = (1986, 1987, 6044, 6045)
-    Asuran_Krewe        = (6755, 6756, 6775)
+    Asuran_Krewe        = (6755, 6756)
     Norn_Hunters        = (6374, 6380)
 
     def __init__(self, *mids: int):
@@ -283,118 +283,106 @@ class BlessingRunner:
 
         return False
 
-    # ——— Kurzick / Luxon Priest logic ———
+    # ——— Kurzick / Luxon Priest logic (refactored) ———
     def _tick_kurzick_luxon(self) -> bool:
-        """4-step dialog [1,2,1,1] → fallback [1,1], then verify."""
+        """
+        2-button flow → [1,1]
+        3-button flow → [1,2,1,1]
+
+        Non-leaders wait 2 seconds *before* approaching/interacting.
+        """
         npc_name = "Kurzick Priest" if self.member is BlessingNpc.Kurzick_Priest else "Luxon Priest"
         now = time.time()
 
-        # Stage 0: approach & interact
+        # Stage 0: (possible) pre-interact delay → approach & interact
         if self._kl_stage == 0:
-            if move_interact_blessing_npc(self.agent, self.interact_distance):
-                ConsoleLog("BlessingRunner", f"{npc_name}: interacted, waiting for dialog…", Console.MessageType.Debug)
+            # on first entry, stamp the time
+            if self._wait_start == 0.0:
                 self._wait_start = now
-                self._kl_stage = 1
-            return False
 
-        # Stage 1: initial dialog → click “1”
+            # non-leader: hold off for 2 seconds
+            leader = Party.GetPartyLeaderID()
+            me     = Player.GetAgentID()
+            if me != leader and (now - self._wait_start) < 2.0:
+                # still within our 2 s “hold” window
+                return False
+
+            # now either leader, or 2 s have passed → actually move + interact
+            if move_interact_blessing_npc(self.agent, self.interact_distance):
+                ConsoleLog(
+                    "BlessingRunner",
+                    f"{npc_name}: interacted, waiting for dialog…",
+                    Console.MessageType.Debug
+                )
+                # reset the timer for the *next* wait (stage 1)
+                self._wait_start = now
+                self._kl_stage   = 1
+            return False
+        
+            # Stage 1: initial request → click 1
         if self._kl_stage == 1:
             if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
-                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (request)", Console.MessageType.Debug)
+                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (initial request)", Console.MessageType.Debug)
                 click_dialog_button(1)
                 self._wait_start = now
-                self._kl_stage = 2
+                self._kl_stage   = 2
             elif now - self._wait_start > 8.0:
                 ConsoleLog("BlessingRunner", f"{npc_name}: dialog never appeared, aborting", Console.MessageType.Warning)
                 self.success = False
                 return True
             return False
 
-        # Stage 2: donation menu → click “2”
+        # Stage 2: donation menu appears → decide bribe vs no-bribe
         if self._kl_stage == 2:
             if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
-                ConsoleLog("BlessingRunner", f"{npc_name}: click 2 (high donation)", Console.MessageType.Debug)
-                click_dialog_button(2)
-                self._wait_start = now
-                self._kl_stage = 3
+                count = get_dialog_button_count()
+                if count == 3:
+                    # bribe path
+                    ConsoleLog("BlessingRunner", f"{npc_name}: click 2 (high donation)", Console.MessageType.Debug)
+                    click_dialog_button(2)
+                    self._wait_start = now
+                    self._kl_stage = 3
+                else:
+                    # no-bribe path: just close
+                    ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (no bribe)", Console.MessageType.Debug)
+                    click_dialog_button(1)
+                    self.success = has_any_blessing(Player.GetAgentID())
+                    if self.success:
+                        _write_flag()
+                    return True
             elif now - self._wait_start > 8.0:
-                ConsoleLog("BlessingRunner", f"{npc_name}: menu absent, aborting", Console.MessageType.Warning)
+                ConsoleLog("BlessingRunner", f"{npc_name}: donation menu not found, aborting", Console.MessageType.Warning)
                 self.success = False
                 return True
             return False
 
-        # Stage 3: confirmation → click “1”
+        # Stage 3: confirm large donation → click “1”
         if self._kl_stage == 3:
             if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
-                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (confirm large)", Console.MessageType.Debug)
+                ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (confirm large donation)", Console.MessageType.Debug)
                 click_dialog_button(1)
                 self._wait_start = now
                 self._kl_stage = 4
-            elif now - self._wait_start > 2.0:
-                ConsoleLog("BlessingRunner", f"{npc_name}: large donation failed, fallback", Console.MessageType.Warning)
-                self._kl_stage = 5
-                self._wait_start = 0.0
+            elif now - self._wait_start > 8.0:
+                ConsoleLog("BlessingRunner", f"{npc_name}: confirmation never appeared, aborting", Console.MessageType.Warning)
+                self.success = False
+                return True
             return False
 
-        # Stage 4: final dialog → click “1” or immediate verify
+        # Stage 4: final close → click “1” or immediate verify
         if self._kl_stage == 4:
             if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
                 ConsoleLog("BlessingRunner", f"{npc_name}: click 1 (final close)", Console.MessageType.Debug)
                 click_dialog_button(1)
                 self.success = has_any_blessing(Player.GetAgentID())
-                if self.success: _write_flag()
+                if self.success:
+                    _write_flag()
                 return True
             if not is_npc_dialog_visible():
-                ConsoleLog("BlessingRunner", f"{npc_name}: no final dialog, verify", Console.MessageType.Debug)
+                ConsoleLog("BlessingRunner", f"{npc_name}: dialog closed, verifying blessing", Console.MessageType.Debug)
                 self.success = has_any_blessing(Player.GetAgentID())
-                if self.success: _write_flag()
-                return True
-            return False
-
-        # Stages 5–8: fallback small-donation [1,1]
-        #  5) re-approach & interact
-        if self._kl_stage == 5:
-            if move_interact_blessing_npc(self.agent, self.interact_distance):
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback interact", Console.MessageType.Debug)
-                self._wait_start = now
-                self._kl_stage = 6
-            return False
-        #  6) fallback request → click 1
-        if self._kl_stage == 6:
-            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback click 1", Console.MessageType.Debug)
-                click_dialog_button(1)
-                self._wait_start = now
-                self._kl_stage = 7
-            elif now - self._wait_start > 8.0:
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback dialog never appeared, abort", Console.MessageType.Warning)
-                self.success = False
-                return True
-            return False
-        #  7) fallback confirm → click 1
-        if self._kl_stage == 7:
-            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback confirm small donation", Console.MessageType.Debug)
-                click_dialog_button(1)
-                self._wait_start = now
-                self._kl_stage = 8
-            elif now - self._wait_start > 8.0:
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback confirm never appeared, abort", Console.MessageType.Warning)
-                self.success = False
-                return True
-            return False
-        #  8) fallback finalize → click 1 or immediate verify
-        if self._kl_stage == 8:
-            if is_npc_dialog_visible() and now - self._wait_start >= 0.5:
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback final close", Console.MessageType.Debug)
-                click_dialog_button(1)
-                self.success = has_any_blessing(Player.GetAgentID())
-                if self.success: _write_flag()
-                return True
-            if not is_npc_dialog_visible():
-                ConsoleLog("BlessingRunner", f"{npc_name}: fallback done, verify", Console.MessageType.Debug)
-                self.success = has_any_blessing(Player.GetAgentID())
-                if self.success: _write_flag()
+                if self.success:
+                    _write_flag()
                 return True
             return False
 
