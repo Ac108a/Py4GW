@@ -1,16 +1,22 @@
 from Py4GWCoreLib import Timer
 from Py4GWCoreLib import Utils
 from Py4GWCoreLib import ConsoleLog
+from Py4GWCoreLib import ActionQueueManager
 from time import sleep
+import time
 from .enums import *
 import inspect
 import math
-from typing import List, Tuple, Callable
+from typing import List, Tuple, Callable, Optional
+from datetime import datetime, timezone
+"""
 from .Map import Map
 from .Party import Party
 from .Inventory import Inventory
 from .Player import Player
 from .Agent import Agent
+"""
+from .GlobalCache import GLOBAL_CACHE
 
 arrived_timer = Timer()
 
@@ -20,71 +26,67 @@ class Routines:
         class Player:
             @staticmethod
             def CanAct():
-                if Agent.IsDead(Player.GetAgentID()):
+                if GLOBAL_CACHE.Agent.IsDead(GLOBAL_CACHE.Player.GetAgentID()):
                     return False
-                if Agent.IsKnockedDown(Player.GetAgentID()):
+                if GLOBAL_CACHE.Agent.IsKnockedDown(GLOBAL_CACHE.Player.GetAgentID()):
                     return False
-                if Agent.IsCasting(Player.GetAgentID()):
+                if GLOBAL_CACHE.Agent.IsCasting(GLOBAL_CACHE.Player.GetAgentID()):
                     return False
                 return True
 
         class Map:
             @staticmethod
             def MapValid():
-                if Map.IsMapLoading():
+                if  GLOBAL_CACHE.Map.IsMapLoading():
                     return False
-                if not Map.IsMapReady():
+                if not  GLOBAL_CACHE.Map.IsMapReady():
                     return False
-                if not Party.IsPartyLoaded():
+                if not  GLOBAL_CACHE.Party.IsPartyLoaded():
                     return False
-                if Map.IsInCinematic():
+                if  GLOBAL_CACHE.Map.IsInCinematic():
                     return False
                 return True
 
         class Inventory:
             @staticmethod
             def InventoryAndLockpickCheck():
-                return Inventory.GetFreeSlotCount() > 0 and Inventory.GetModelCount(22751) > 0 
+                return GLOBAL_CACHE.Inventory.GetFreeSlotCount() > 0 and GLOBAL_CACHE.Inventory.GetModelCount(22751) > 0 
 
         class Effects:
             @staticmethod
             def HasBuff(agent_id, skill_id):
-                from .Effect import Effects 
-                if Effects.BuffExists(agent_id, skill_id) or Effects.EffectExists(agent_id, skill_id):
+                if GLOBAL_CACHE.Effects.HasEffect(agent_id, skill_id):
                     return True
                 return False
 
         class Agents:
             @staticmethod
             def InDanger(aggro_area=Range.Earshot, aggressive_only = False):
-                from .Agent import Agent
-                from .Player import Player
                 from .AgentArray import AgentArray
-                enemy_array = AgentArray.GetEnemyArray()
-                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Utils.Distance(Player.GetXY(), Agent.GetXY(agent_id)) <= aggro_area.value)
-                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsAlive(agent_id))
-                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Player.GetAgentID() != agent_id)
+                enemy_array = GLOBAL_CACHE.AgentArray.GetEnemyArray()
+                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Utils.Distance(GLOBAL_CACHE.Player.GetXY(), GLOBAL_CACHE.Agent.GetXY(agent_id)) <= aggro_area.value)
+                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Player.GetAgentID() != agent_id)
                 if aggressive_only:
-                    enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsAggressive(agent_id))
+                    enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAggressive(agent_id))
                 if len(enemy_array) > 0:
                     return True
                 return False
             
+            
     
             @staticmethod
             def IsEnemyBehind (agent_id):
-                from .Agent import Agent
-                from .Player import Player
 
-                player_agent_id = Player.GetAgentID()
-                target = Player.GetTargetID()
-                player_x, player_y = Agent.GetXY(player_agent_id)
-                player_angle = Agent.GetRotationAngle(player_agent_id)  # Player's facing direction
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
+                target = GLOBAL_CACHE.Player.GetTargetID()
+                player_x, player_y = GLOBAL_CACHE.Agent.GetXY(player_agent_id)
+                player_angle = GLOBAL_CACHE.Agent.GetRotationAngle(player_agent_id)  # Player's facing direction
                 nearest_enemy = agent_id
                 if target == 0:
-                    Player.ChangeTarget(nearest_enemy)
+                    GLOBAL_CACHE.Player.ChangeTarget(nearest_enemy)
                     target = nearest_enemy
-                nearest_enemy_x, nearest_enemy_y = Agent.GetXY(nearest_enemy)
+                nearest_enemy_x, nearest_enemy_y = GLOBAL_CACHE.Agent.GetXY(nearest_enemy)
                             
 
                 # Calculate the angle between the player and the enemy
@@ -103,16 +105,12 @@ class Routines:
             
             @staticmethod
             def IsValidItem(item_id):
-                from .Agent import Agent
-                from .Player import Player
-                owner = Agent.GetItemAgentOwnerID(item_id)
-                return (owner == Player.GetAgentID()) or (owner == 0)
+                owner = GLOBAL_CACHE.Agent.GetItemAgentOwnerID(item_id)
+                return (owner == GLOBAL_CACHE.Player.GetAgentID()) or (owner == 0)
 
         class Skills:
             @staticmethod
             def HasEnoughEnergy(agent_id, skill_id):
-                from .Agent import Agent
-                from .Skill import Skill
                 """
                 Purpose: Check if the player has enough energy to use the skill.
                 Args:
@@ -120,14 +118,12 @@ class Routines:
                     skill_id (int): The skill ID to check.
                 Returns: bool
                 """
-                player_energy = Agent.GetEnergy(agent_id) * Agent.GetMaxEnergy(agent_id)
-                skill_energy = Skill.Data.GetEnergyCost(skill_id)
+                player_energy = GLOBAL_CACHE.Agent.GetEnergy(agent_id) * GLOBAL_CACHE.Agent.GetMaxEnergy(agent_id)
+                skill_energy = GLOBAL_CACHE.Skill.Data.GetEnergyCost(skill_id)
                 return player_energy >= skill_energy
             
             @staticmethod
             def HasEnoughLife(agent_id, skill_id):
-                from .Agent import Agent
-                from .Skill import Skill
                 """
                 Purpose: Check if the player has enough life to use the skill.
                 Args:
@@ -135,8 +131,8 @@ class Routines:
                     skill_id (int): The skill ID to check.
                 Returns: bool
                 """
-                player_life = Agent.GetHealth(agent_id)
-                skill_life = Skill.Data.GetHealthCost(skill_id)
+                player_life = GLOBAL_CACHE.Agent.GetHealth(agent_id)
+                skill_life = GLOBAL_CACHE.Skill.Data.GetHealthCost(skill_id)
                 return player_life > skill_life
 
             @staticmethod
@@ -148,9 +144,8 @@ class Routines:
                     skill_id (int): The skill ID to check.
                 Returns: bool
                 """
-                from .Skill import Skill
-                skill_adrenaline = Skill.Data.GetAdrenaline(skill_id)
-                skill_adrenaline_a = Skill.Data.GetAdrenalineA(skill_id)
+                skill_adrenaline = GLOBAL_CACHE.Skill.Data.GetAdrenaline(skill_id)
+                skill_adrenaline_a = GLOBAL_CACHE.Skill.Data.GetAdrenalineA(skill_id)
                 if skill_adrenaline == 0:
                     return True
 
@@ -161,8 +156,6 @@ class Routines:
 
             @staticmethod
             def DaggerStatusPass(agent_id, skill_id):
-                from .Agent import Agent
-                from .Skill import Skill
                 """
                 Purpose: Check if the player attack dagger status match tha skill requirement.
                 Args:
@@ -171,8 +164,8 @@ class Routines:
                 Returns: bool
                 """
                 
-                dagger_status = Agent.GetDaggerStatus(agent_id)
-                skill_combo = Skill.Data.GetCombo(skill_id)
+                dagger_status = GLOBAL_CACHE.Agent.GetDaggerStatus(agent_id)
+                skill_combo = GLOBAL_CACHE.Skill.Data.GetCombo(skill_id)
 
                 if skill_combo == 1 and (dagger_status != 0 and dagger_status != 3):
                     return False
@@ -187,44 +180,106 @@ class Routines:
             
             @staticmethod
             def IsSkillIDReady(skill_id):
-                from .Skillbar import SkillBar
-                skill = SkillBar.GetSkillData(SkillBar.GetSlotBySkillID(skill_id))
+                skill = GLOBAL_CACHE.SkillBar.GetSkillData(GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id))
                 recharge = skill.recharge
                 return recharge == 0
 
             @staticmethod
             def IsSkillSlotReady(skill_slot):
-                from .Skillbar import SkillBar
-                skill = SkillBar.GetSkillData(skill_slot)
+                skill = GLOBAL_CACHE.SkillBar.GetSkillData(skill_slot)
                 return skill.recharge == 0
             
             @staticmethod    
             def CanCast():
-                from .Agent import Agent
-                from .Player import Player
-                from .Skillbar import SkillBar
-                
-                player_agent_id = Player.GetAgentID()
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
 
                 if (
-                    Agent.IsCasting(player_agent_id) 
-                    or Agent.GetCastingSkill(player_agent_id) != 0
-                    or Agent.IsKnockedDown(player_agent_id)
-                    or Agent.IsDead(player_agent_id)
-                    or SkillBar.GetCasting() != 0
+                    GLOBAL_CACHE.Agent.IsCasting(player_agent_id) 
+                    or GLOBAL_CACHE.Agent.IsKnockedDown(player_agent_id)
+                    or GLOBAL_CACHE.Agent.IsDead(player_agent_id)
+                    or GLOBAL_CACHE.SkillBar.GetCasting() != 0
                 ):
                     return False
                 return True
             
             @staticmethod
             def InCastingProcess():
-                from .Player import Player
-                from .Agent import Agent
-                from .Skillbar import SkillBar
-                player_agent_id = Player.GetAgentID()
-                if Agent.IsCasting(player_agent_id) or SkillBar.GetCasting() != 0 or Agent.GetCastingSkill(player_agent_id) != 0:
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
+                if GLOBAL_CACHE.Agent.IsCasting(player_agent_id) or GLOBAL_CACHE.SkillBar.GetCasting() != 0:
                     return True
                 return False
+            
+            @staticmethod
+            def apply_fast_casting(skill_id: int, fast_casting_level =0) -> Tuple[float, float]:
+                """
+                Applies Fast Casting effects for cast time and recharge time, following exact in-game mechanics.
+
+                :param agent_id: ID of the agent using the skill.
+                :param skill_id: ID of the skill being evaluated.
+                :return: (adjusted_cast_time, adjusted_recharge_time)
+                """
+                activation_time = GLOBAL_CACHE.Skill.Data.GetActivation(skill_id)
+                recharge_time = GLOBAL_CACHE.Skill.Data.GetRecharge(skill_id)
+                
+                #return activation_time, recharge_time
+
+                if fast_casting_level <= 0:
+                    return activation_time, recharge_time
+
+                # Get skill type and professions
+                is_spell = GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id)
+                is_signet = GLOBAL_CACHE.Skill.Flags.IsSignet(skill_id)
+                _, skill_profession = GLOBAL_CACHE.Skill.GetProfession(skill_id)
+
+                # --- CAST TIME REDUCTION ---
+                if is_spell or is_signet:
+                    # Mesmer spells/signets → always affected
+                    if skill_profession == "Mesmer":
+                        activation_time *= 0.955 ** fast_casting_level
+                        activation_time = round(activation_time, 3)
+                    # Non-Mesmer spells/signets → only affected if cast time >= 2s
+                    elif activation_time >= 2.0:
+                        activation_time *= 0.955 ** fast_casting_level
+                        activation_time = round(activation_time, 3)
+
+                # --- RECHARGE TIME REDUCTION ---
+                if skill_profession == "Mesmer" and is_spell:
+                    recharge_time *= (1.0 - 0.03 * fast_casting_level)
+                    recharge_time = round(recharge_time)
+
+                return activation_time, recharge_time
+
+
+            
+            @staticmethod
+            def apply_expertise_reduction(base_cost: int, expertise_level: int, skill_id) -> int:
+                """
+                Applies the Guild Wars expertise cost reduction correctly.
+                
+                :param base_cost: The original energy cost of the skill.
+                :param expertise_level: The level of Expertise (0-20).
+                :return: The reduced cost, rounded down to an integer.
+                """
+                #return base_cost  # Default to no reduction
+            
+                skill_type, _ = GLOBAL_CACHE.Skill.GetType(skill_id)
+                _, skill_profession = GLOBAL_CACHE.Skill.GetProfession(skill_id)
+                if (skill_type == 14 or #attack skills
+                    GLOBAL_CACHE.Skill.Flags.IsRitual(skill_id) or
+                    GLOBAL_CACHE.Skill.Flags.IsTouchRange(skill_id) or
+                    skill_profession == "Ranger"):
+
+                    EXPERTISE_REDUCTION = [
+                        1.00, 0.96, 0.92, 0.88, 0.84, 0.80, 0.76, 0.72, 0.68, 0.64, 0.60,
+                        0.56, 0.52, 0.48, 0.44, 0.40, 0.36, 0.32, 0.28, 0.24, 0.20
+                    ]
+                    if expertise_level < 0 or expertise_level > 20:
+                        expertise_level = max(0, min(expertise_level, 20))  # clamp
+                    reduction_factor = EXPERTISE_REDUCTION[expertise_level]
+                    return max(0, int(base_cost * reduction_factor))  # floor after applying
+                
+                return base_cost  # No reduction for other skills
+
             
             @staticmethod
             def GetEnergyCostWithEffects(skill_id, agent_id):
@@ -239,29 +294,21 @@ class Routines:
                         Values are rounded to integers.
                         Minimum cost is 0 unless otherwise specified by an effect.
                 """
-                from .Effect import Effects
-                from .Skill import Skill
                 # Get base energy cost for the skill
-                cost = Skill.skill_instance(skill_id).energy_cost
-
-                # Adjust base cost for special cases (API inconsistencies)
-                if cost == 11:
-                    cost = 15    # True cost is 15
-                elif cost == 12:
-                    cost = 25    # True cost is 25
-
+                cost = GLOBAL_CACHE.Skill.Data.GetEnergyCost(skill_id)
+                
                 # Get all active effects on the agent
-                player_effects = Effects.GetEffects(agent_id)
+                player_effects = GLOBAL_CACHE.Effects.GetEffects(agent_id)
 
                 # Process each effect in order of application
                 # Effects are processed in this specific order to match game mechanics
                 for effect in player_effects:
                     effect_id = effect.skill_id
-                    attr = Effects.EffectAttributeLevel(agent_id, effect_id)
+                    attr = GLOBAL_CACHE.Effects.EffectAttributeLevel(agent_id, effect_id)
 
                     match effect_id:
                         case 469:  # Primal Echoes - Forces Signets to cost 10 energy
-                            if Skill.Flags.IsSignet(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsSignet(skill_id):
                                 cost = 10  # Fixed cost regardless of other effects
                                 continue  # Allow other effects to modify this cost
 
@@ -270,7 +317,7 @@ class Routines:
                             continue
 
                         case 1725:  # Roaring Winds - Increases Shout/Chant cost based on attribute level
-                            if Skill.Flags.IsChant(skill_id) or Skill.Flags.IsShout(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsChant(skill_id) or GLOBAL_CACHE.Skill.Flags.IsShout(skill_id):
                                 match attr:
                                     case a if 0 < a <= 1:
                                         cost += 1
@@ -295,12 +342,12 @@ class Routines:
                             continue
 
                         case 1115:  # Air of Enchantment
-                            if Skill.Flags.IsEnchantment(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsEnchantment(skill_id):
                                 cost -= 5
                             continue
 
                         case 1223:  # Anguished Was Lingwah
-                            if Skill.Flags.IsHex(skill_id) and Skill.GetProfession(skill_id)[0] == 8:
+                            if GLOBAL_CACHE.Skill.Flags.IsHex(skill_id) and GLOBAL_CACHE.Skill.GetProfession(skill_id)[0] == 8:
                                 match attr:
                                     case a if 0 < a <= 1:
                                         cost -= 1
@@ -319,7 +366,7 @@ class Routines:
                                 continue
 
                         case 1220:  # Attuned Was Songkai
-                            if Skill.Flags.IsSpell(skill_id) or Skill.Flags.IsRitual(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id) or GLOBAL_CACHE.Skill.Flags.IsRitual(skill_id):
                                 percentage = 5 + (attr * 3) if attr <= 20 else 68
                                 cost -= cost * (percentage / 100)
                             continue
@@ -329,7 +376,7 @@ class Routines:
                             continue
 
                         case 806:  # Cultist's Fervor
-                            if Skill.Flags.IsSpell(skill_id) and Skill.GetProfession(skill_id)[0] == 4:
+                            if GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id) and GLOBAL_CACHE.Skill.GetProfession(skill_id)[0] == 4:
                                 match attr:
                                     case a if 0 < a <= 1:
                                         cost -= 1
@@ -350,12 +397,12 @@ class Routines:
                                 continue
 
                         case 310:  # Divine Spirit
-                            if Skill.Flags.IsSpell(skill_id) and Skill.GetProfession(skill_id)[0] == 3:
+                            if GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id) and GLOBAL_CACHE.Skill.GetProfession(skill_id)[0] == 3:
                                 cost -= 5
                             continue
 
                         case 1569:  # Energizing Chorus
-                            if Skill.Flags.IsChant(skill_id) or Skill.Flags.IsShout(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsChant(skill_id) or GLOBAL_CACHE.Skill.Flags.IsShout(skill_id):
                                 match attr:
                                     case a if 0 < a <= 1:
                                         cost -= 3
@@ -381,7 +428,7 @@ class Routines:
                             continue
 
                         case 2145:  # Expert Focus
-                            if Skill.Flags.IsAttack(skill_id) and Skill.Data.GetWeaponReq(skill_id) == 2:
+                            if GLOBAL_CACHE.Skill.Flags.IsAttack(skill_id) and GLOBAL_CACHE.Skill.Data.GetWeaponReq(skill_id) == 2:
                                 match attr:
                                     case a if 0 < a <= 7:
                                         cost -= 1
@@ -390,14 +437,14 @@ class Routines:
                                     
 
                         case 199:  # Glyph of Energy
-                            if Skill.Flags.IsSpell(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id):
                                 if attr == 0:
                                     cost -= 10
                                 else:
                                     cost -= (10 + attr)
 
                         case 200:  # Glyph of Lesser Energy
-                            if Skill.Flags.IsSpell(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id):
                                 match attr:
                                     case 0:
                                         cost -= 10
@@ -425,7 +472,7 @@ class Routines:
                                         cost -= 21
 
                         case 1394:  # Healer's Covenant
-                            if Skill.Flags.IsSpell(skill_id) and Skill.Attribute.GetAttribute(skill_id).attribute_id == 15:
+                            if GLOBAL_CACHE.Skill.Flags.IsSpell(skill_id) and GLOBAL_CACHE.Skill.Attribute.GetAttribute(skill_id).attribute_id == 15:
                                 match attr:
                                     case a if 0 < a <= 3:
                                         cost -= 1
@@ -437,7 +484,7 @@ class Routines:
                                         cost -= 4
 
                         case 763:  # Jaundiced Gaze
-                            if Skill.Flags.IsEnchantment(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsEnchantment(skill_id):
                                 match attr:
                                     case 0:
                                         cost -= 1
@@ -469,19 +516,20 @@ class Routines:
                                         cost -= 14
 
                         case 1739:  # Renewing Memories
-                            if Skill.Flags.IsItemSpell(skill_id) or Skill.Flags.IsWeaponSpell(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsItemSpell(skill_id) or GLOBAL_CACHE.Skill.Flags.IsWeaponSpell(skill_id):
                                 percentage = 5 + (attr * 2) if attr <= 20 else 47
                                 cost -= cost * (percentage / 100)
 
                         case 1240:  # Soul Twisting
-                            if Skill.Flags.IsRitual(skill_id):
+                            if GLOBAL_CACHE.Skill.Flags.IsRitual(skill_id):
                                 cost = 10  # Fixe le coût à 10
 
                         case 987:  # Way of the Empty Palm
-                            if Skill.Data.GetCombo(skill_id) == 2 or Skill.Data.GetCombo(skill_id) == 3:  # Attaque double ou secondaire
+                            if GLOBAL_CACHE.Skill.Data.GetCombo(skill_id) == 2 or GLOBAL_CACHE.Skill.Data.GetCombo(skill_id) == 3:  # Attaque double ou secondaire
                                 cost = 0
 
                 cost = max(0, cost)
+
                 return cost
 
     #region Transitions
@@ -495,24 +543,23 @@ class Routines:
                 log_actions (bool) Optional: Whether to log the action. Default is True.
             Returns: None
             """
-            from .Map import Map
             global arrived_timer
 
             current_function = (frame := inspect.currentframe()) and frame.f_code.co_name or "Unknown"
 
-            if not Map.IsMapReady():
+            if not GLOBAL_CACHE.Map.IsMapReady():
                 return
 
-            if Map.GetMapID() == outpost_id:
+            if GLOBAL_CACHE.Map.GetMapID() == outpost_id:
                 if log_actions and arrived_timer.IsStopped():
-                    ConsoleLog(current_function, f"Already at outpost: {Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
+                    ConsoleLog(current_function, f"Already at outpost: {GLOBAL_CACHE.Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
                 return
 
             if arrived_timer.IsStopped():
-                Map.Travel(outpost_id)
+                GLOBAL_CACHE.Map.Travel(outpost_id)
                 arrived_timer.Start()
                 if log_actions:
-                    ConsoleLog(current_function, f"Traveling to outpost: {Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
+                    ConsoleLog(current_function, f"Traveling to outpost: {GLOBAL_CACHE.Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
                     
         @staticmethod
         def HasArrivedToOutpost(outpost_id, log_actions=True):
@@ -523,27 +570,26 @@ class Routines:
                 log_actions (bool) Optional: Whether to log the action. Default is True.
             Returns: bool
             """
-            from .Map import Map
             global arrived_timer
 
             current_function = (frame := inspect.currentframe()) and frame.f_code.co_name or "Unknown"
 
-            has_arrived = Map.GetMapID() == outpost_id and Routines.Transition.IsOutpostLoaded()
+            has_arrived = GLOBAL_CACHE.Map.GetMapID() == outpost_id and Routines.Transition.IsOutpostLoaded()
 
             if has_arrived:
                 arrived_timer.Stop()
                 if log_actions:
-                    ConsoleLog(current_function, f"Arrived at outpost: {Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
+                    ConsoleLog(current_function, f"Arrived at outpost: {GLOBAL_CACHE.Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
                 return True
 
             if arrived_timer.HasElapsed(5000):
                 arrived_timer.Stop()
                 if log_actions:
-                    ConsoleLog(current_function, f"Timeout reaching outpost: {Map.GetMapName(outpost_id)}.", Console.MessageType.Warning)
+                    ConsoleLog(current_function, f"Timeout reaching outpost: {GLOBAL_CACHE.Map.GetMapName(outpost_id)}.", Console.MessageType.Warning)
                 return False
 
             if log_actions:
-                ConsoleLog(current_function, f"Still traveling... Waiting to arrive at: {Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
+                ConsoleLog(current_function, f"Still traveling... Waiting to arrive at: {GLOBAL_CACHE.Map.GetMapName(outpost_id)}.", Console.MessageType.Info)
 
             return False
 
@@ -555,10 +601,7 @@ class Routines:
                 log_actions (bool) Optional: Whether to log the action. Default is True.
             Returns: bool
             """
-            from .Party import Party
-            from .Map import Map
-
-            map_loaded = Map.IsMapReady() and Map.IsOutpost() and Party.IsPartyLoaded()
+            map_loaded = GLOBAL_CACHE.Map.IsMapReady() and GLOBAL_CACHE.Map.IsOutpost() and GLOBAL_CACHE.Party.IsPartyLoaded()
 
             if log_actions:
                 current_function = (frame := inspect.currentframe()) and frame.f_code.co_name or "Unknown"
@@ -577,10 +620,7 @@ class Routines:
                 log_actions (bool) Optional: Whether to log the action. Default is True.
             Returns: bool
             """
-            from .Party import Party
-            from .Map import Map
-            
-            map_loaded = Map.IsMapReady() and Map.IsExplorable() and Party.IsPartyLoaded()
+            map_loaded = GLOBAL_CACHE.Map.IsMapReady() and GLOBAL_CACHE.Map.IsExplorable() and GLOBAL_CACHE.Party.IsPartyLoaded()
             
             if log_actions:
                 if map_loaded:
@@ -594,18 +634,15 @@ class Routines:
     class Targeting:
         @staticmethod
         def InteractTarget():
-            from .Player import Player
             """Interact with the target"""
-            Player.Interact(Player.GetTargetID())
+            GLOBAL_CACHE.Player.Interact(GLOBAL_CACHE.Player.GetTargetID(), False)
             
         @staticmethod
         def HasArrivedToTarget():
-            from .Agent import Agent
-            from .Player import Player
             """Check if the player has arrived at the target."""
-            player_x, player_y = Player.GetXY()
-            target_id = Player.GetTargetID()
-            target_x, target_y = Agent.GetXY(target_id)
+            player_x, player_y = GLOBAL_CACHE.Player.GetXY()
+            target_id = GLOBAL_CACHE.Player.GetTargetID()
+            target_x, target_y = GLOBAL_CACHE.Agent.GetXY(target_id)
             return Utils.Distance((player_x, player_y), (target_x, target_y)) < 100
     #endregion
     #region Agents
@@ -613,9 +650,8 @@ class Routines:
         @staticmethod
         def GetNearestNPCXY(x,y, distance):
             from .AgentArray import AgentArray
-            from .Player import Player
             scan_pos = (x,y)
-            npc_array = AgentArray.GetNPCMinipetArray()
+            npc_array = GLOBAL_CACHE.AgentArray.GetNPCMinipetArray()
             npc_array = AgentArray.Filter.ByDistance(npc_array,scan_pos, distance)
             npc_array = AgentArray.Sort.ByDistance(npc_array, scan_pos)
             if len(npc_array) > 0:
@@ -624,15 +660,26 @@ class Routines:
                    
         @staticmethod
         def GetNearestNPC(distance:float = 4500.0):
-            from .Player import Player
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             return Routines.Agents.GetNearestNPCXY(player_pos[0], player_pos[1], distance)
+        
+        @staticmethod
+        def GetAgentIDByModelID(model_id:int):
+            """
+            Purpose: Get the agent ID by model ID.
+            Args:
+                model_id (int): The model ID of the agent.
+            Returns: int: The agent ID or 0 if not found.
+            """
+            agent_ids = GLOBAL_CACHE.AgentArray.GetAgentArray()
+            for agent_id in agent_ids:
+                if GLOBAL_CACHE.Agent.GetModelID(agent_id) == model_id:
+                    return agent_id
+            return 0
          
         @staticmethod
         def GetFilteredEnemyArray(x, y, max_distance=4500.0, aggressive_only = False):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             """
             Purpose: filters enemies within the specified range.
             Args:
@@ -640,20 +687,19 @@ class Routines:
             Returns: List of enemy agent IDs
             """
             enemy_array = AgentArray.GetEnemyArray()
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Utils.Distance((x,y), Agent.GetXY(agent_id)) <= max_distance)
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsAlive(agent_id))
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Player.GetAgentID() != agent_id)
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Utils.Distance((x,y), GLOBAL_CACHE.Agent.GetXY(agent_id)) <= max_distance)
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Player.GetAgentID() != agent_id)
             if aggressive_only:
-                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsAggressive(agent_id))
+                enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAggressive(agent_id))
             return enemy_array
                      
         @staticmethod
         def GetNearestEnemy(max_distance=4500.0, aggressive_only = False):
             from .AgentArray import AgentArray
-            from .Player import Player
             from .Py4GWcorelib import Utils
 
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             enemy_array = Routines.Agents.GetFilteredEnemyArray(player_pos[0], player_pos[1], max_distance, aggressive_only)
             enemy_array = AgentArray.Sort.ByDistance(enemy_array, player_pos)
             return Utils.GetFirstFromArray(enemy_array)
@@ -661,67 +707,76 @@ class Routines:
         @staticmethod
         def GetNearestEnemyCaster(max_distance=4500.0, aggressive_only = False):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             from .Py4GWcorelib import Utils
 
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             enemy_array = Routines.Agents.GetFilteredEnemyArray(player_pos[0], player_pos[1], max_distance, aggressive_only)
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsCaster(agent_id))
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsCaster(agent_id))
             enemy_array = AgentArray.Sort.ByDistance(enemy_array, player_pos)
             return Utils.GetFirstFromArray(enemy_array)
             
         @staticmethod
         def GetNearestEnemyMartial(max_distance=4500.0, aggressive_only = False):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             from .Py4GWcorelib import Utils
 
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             enemy_array = Routines.Agents.GetFilteredEnemyArray(player_pos[0], player_pos[1], max_distance, aggressive_only)
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsMartial(agent_id))
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsMartial(agent_id))
             enemy_array = AgentArray.Sort.ByDistance(enemy_array, player_pos)
             return Utils.GetFirstFromArray(enemy_array)   
         
         @staticmethod
         def GetNearestEnemyMelee(max_distance=4500.0, aggressive_only = False):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             from .Py4GWcorelib import Utils
 
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             enemy_array = Routines.Agents.GetFilteredEnemyArray(player_pos[0], player_pos[1], max_distance, aggressive_only)
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsMelee(agent_id))
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsMelee(agent_id))
             enemy_array = AgentArray.Sort.ByDistance(enemy_array, player_pos)
             return Utils.GetFirstFromArray(enemy_array)
         
         @staticmethod
         def GetNearestEnemyRanged(max_distance=4500.0, aggressive_only = False):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             from .Py4GWcorelib import Utils
 
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             enemy_array = Routines.Agents.GetFilteredEnemyArray(player_pos[0], player_pos[1], max_distance, aggressive_only)
-            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: Agent.IsRanged(agent_id))
+            enemy_array = AgentArray.Filter.ByCondition(enemy_array, lambda agent_id: GLOBAL_CACHE.Agent.IsRanged(agent_id))
             enemy_array = AgentArray.Sort.ByDistance(enemy_array, player_pos)
             return Utils.GetFirstFromArray(enemy_array)
          
         @staticmethod
+        def GetFilteredAllyArray(x, y, max_distance=4500.0, other_ally=False):
+            from .AgentArray import AgentArray
+            """
+            Purpose: filters allies within the specified range.
+            Args:
+                range (int): The maximum distance to search for allies.
+                other_ally (bool): Whether to include other allies in the search.
+            Returns: List of ally agent IDs
+            """
+            ally_array = GLOBAL_CACHE.AgentArray.GetAllyArray()
+            ally_array = AgentArray.Filter.ByDistance(ally_array, (x,y), max_distance)
+            ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+            if other_ally:
+                ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: GLOBAL_CACHE.Player.GetAgentID() != agent_id)
+                
+            return ally_array
+
+        
+        @staticmethod
         def GetNearestAlly(max_distance=4500.0, exclude_self=True):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             from .Py4GWcorelib import Utils
 
-            self_id = Player.GetAgentID()
-            player_pos = Player.GetXY()
-            ally_array = AgentArray.GetAllyArray()
+            self_id = GLOBAL_CACHE.Player.GetAgentID()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
+            ally_array = GLOBAL_CACHE.AgentArray.GetAllyArray()
             ally_array = AgentArray.Filter.ByDistance(ally_array, player_pos, max_distance)
-            ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: Agent.IsAlive(agent_id))
+            ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
             if exclude_self:
                 ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: agent_id != self_id)
             ally_array = AgentArray.Sort.ByDistance(ally_array, player_pos)
@@ -730,24 +785,20 @@ class Routines:
         @staticmethod   
         def GetDeadAlly(max_distance=4500.0):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
 
             distance = max_distance
             ally_array = AgentArray.GetAllyArray()
-            ally_array = AgentArray.Filter.ByDistance(ally_array, Player.GetXY(), distance)
-            ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: Agent.IsDead(agent_id))
-            ally_array = AgentArray.Sort.ByDistance(ally_array, Player.GetXY())
+            ally_array = AgentArray.Filter.ByDistance(ally_array, GLOBAL_CACHE.Player.GetXY(), distance)
+            ally_array = AgentArray.Filter.ByCondition(ally_array, lambda agent_id: GLOBAL_CACHE.Agent.IsDead(agent_id))
+            ally_array = AgentArray.Sort.ByDistance(ally_array, GLOBAL_CACHE.Player.GetXY())
             return Utils.GetFirstFromArray(ally_array)
         
         @staticmethod
         def GetNearestCorpse(max_distance=4500.0):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             
             def _AllowedAlliegance(agent_id):
-                _, alliegance = Agent.GetAllegiance(agent_id)
+                _, alliegance = GLOBAL_CACHE.Agent.GetAllegiance(agent_id)
 
                 if (alliegance == "Ally" or
                     alliegance == "Neutral" or 
@@ -758,63 +809,85 @@ class Routines:
                 return False
 
             distance = max_distance
-            corpse_array = AgentArray.GetAgentArray()
-            corpse_array = AgentArray.Filter.ByDistance(corpse_array, Player.GetXY(), distance)
-            corpse_array = AgentArray.Filter.ByCondition(corpse_array, lambda agent_id: Agent.IsDead(agent_id))
+            corpse_array = GLOBAL_CACHE.AgentArray.GetAgentArray()
+            corpse_array = AgentArray.Filter.ByDistance(corpse_array, GLOBAL_CACHE.Player.GetXY(), distance)
+            corpse_array = AgentArray.Filter.ByCondition(corpse_array, lambda agent_id: GLOBAL_CACHE.Agent.IsDead(agent_id))
             corpse_array = AgentArray.Filter.ByCondition(corpse_array, lambda agent_id: _AllowedAlliegance(agent_id))
-            corpse_array = AgentArray.Sort.ByDistance(corpse_array, Player.GetXY())
+            corpse_array = AgentArray.Sort.ByDistance(corpse_array, GLOBAL_CACHE.Player.GetXY())
             return Utils.GetFirstFromArray(corpse_array)
             
         @staticmethod
         def GetNearestSpirit(max_distance=4500.0):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             distance = max_distance
-            spirit_array = AgentArray.GetSpiritPetArray()
-            spirit_array = AgentArray.Filter.ByDistance(spirit_array, Player.GetXY(), distance)
-            spirit_array = AgentArray.Filter.ByCondition(spirit_array, lambda agent_id: Agent.IsAlive(agent_id))
-            spirit_array = AgentArray.Filter.ByCondition(spirit_array, lambda agent_id: Agent.IsSpawned(agent_id))
-            spirit_array = AgentArray.Sort.ByDistance(spirit_array, Player.GetXY())
+            spirit_array = GLOBAL_CACHE.AgentArray.GetSpiritPetArray()
+            spirit_array = AgentArray.Filter.ByDistance(spirit_array, GLOBAL_CACHE.Player.GetXY(), distance)
+            spirit_array = AgentArray.Filter.ByCondition(spirit_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+            spirit_array = AgentArray.Filter.ByCondition(spirit_array, lambda agent_id: GLOBAL_CACHE.Agent.IsSpawned(agent_id))
+            spirit_array = AgentArray.Sort.ByDistance(spirit_array, GLOBAL_CACHE.Player.GetXY())
             return Utils.GetFirstFromArray(spirit_array)
+        
+        @staticmethod
+        def GetFilteredSpiritArray(x, y, max_distance=4500.0):
+            from .AgentArray import AgentArray
+            """
+            Purpose: filters spirits within the specified range.
+            Args:
+                range (int): The maximum distance to search for spirits.
+            Returns: List of spirit agent IDs
+            """
+            spirit_array = GLOBAL_CACHE.AgentArray.GetSpiritPetArray()
+            spirit_array = AgentArray.Filter.ByDistance(spirit_array, (x,y), max_distance)
+            spirit_array = AgentArray.Filter.ByCondition(spirit_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+            spirit_array = AgentArray.Filter.ByCondition(spirit_array, lambda agent_id: GLOBAL_CACHE.Agent.IsSpawned(agent_id))
+            return spirit_array
             
         @staticmethod
         def GetLowestMinion(max_distance=4500.0):
             from .AgentArray import AgentArray
-            from .Player import Player
-            from .Agent import Agent
             distance = max_distance
-            minion_array = AgentArray.GetMinionArray()
-            minion_array = AgentArray.Filter.ByDistance(minion_array, Player.GetXY(), distance)
-            minion_array = AgentArray.Filter.ByCondition(minion_array, lambda agent_id: Agent.IsAlive(agent_id))
+            minion_array = GLOBAL_CACHE.AgentArray.GetMinionArray()
+            minion_array = AgentArray.Filter.ByDistance(minion_array, GLOBAL_CACHE.Player.GetXY(), distance)
+            minion_array = AgentArray.Filter.ByCondition(minion_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
             minion_array = AgentArray.Sort.ByHealth(minion_array)
             return Utils.GetFirstFromArray(minion_array)            
             
         @staticmethod
+        def GetFilteredMinionArray(x, y, max_distance=4500.0):
+            from .AgentArray import AgentArray
+            """
+            Purpose: filters minions within the specified range.
+            Args:
+                range (int): The maximum distance to search for minions.
+            Returns: List of minion agent IDs
+            """
+            minion_array = GLOBAL_CACHE.AgentArray.GetMinionArray()
+            minion_array = AgentArray.Filter.ByDistance(minion_array, (x,y), max_distance)
+            minion_array = AgentArray.Filter.ByCondition(minion_array, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+            return minion_array    
+        
+        
+        @staticmethod
         def GetNearestItem(max_distance=4500.0):
             from .AgentArray import AgentArray
-            from .Player import Player
 
             item_array = AgentArray.GetItemArray()
-            item_array = AgentArray.Filter.ByDistance(item_array, Player.GetXY(), max_distance)
-            item_array = AgentArray.Sort.ByDistance(item_array,Player.GetXY())
+            item_array = AgentArray.Filter.ByDistance(item_array, GLOBAL_CACHE.Player.GetXY(), max_distance)
+            item_array = AgentArray.Sort.ByDistance(item_array,GLOBAL_CACHE.Player.GetXY())
             return Utils.GetFirstFromArray(item_array)   
 
         @staticmethod
         def GetNearestGadget(max_distance=4500.0):
             from .AgentArray import AgentArray
-            from .Player import Player
 
-            gadget_array = AgentArray.GetGadgetArray()
-            gadget_array = AgentArray.Filter.ByDistance(gadget_array, Player.GetXY(), max_distance)
-            gadget_array = AgentArray.Sort.ByDistance(gadget_array,Player.GetXY())
+            gadget_array = GLOBAL_CACHE.AgentArray.GetGadgetArray()
+            gadget_array = AgentArray.Filter.ByDistance(gadget_array, GLOBAL_CACHE.Player.GetXY(), max_distance)
+            gadget_array = AgentArray.Sort.ByDistance(gadget_array,GLOBAL_CACHE.Player.GetXY())
             return Utils.GetFirstFromArray(gadget_array)
             
         @staticmethod
         def GetNearestChest(max_distance=5000):
             from .AgentArray import AgentArray
-            from .Agent import Agent
-            from .Player import Player
             """
             Purpose: Get the nearest chest within the specified range.
             Args:
@@ -822,16 +895,16 @@ class Routines:
             Returns: Agent ID or None
             """
             gadget_array = AgentArray.GetGadgetArray()
-            gadget_array = AgentArray.Filter.ByDistance(gadget_array, Player.GetXY(), max_distance)
-            gadget_array = AgentArray.Sort.ByDistance(gadget_array,Player.GetXY())
+            gadget_array = AgentArray.Filter.ByDistance(gadget_array, GLOBAL_CACHE.Player.GetXY(), max_distance)
+            gadget_array = AgentArray.Sort.ByDistance(gadget_array,GLOBAL_CACHE.Player.GetXY())
             for agent_id in gadget_array:
-                if Agent.GetGadgetID(agent_id) == 9: #9 is the ID for Hidden Stash (Pre-Searing)
+                if GLOBAL_CACHE.Agent.GetGadgetID(agent_id) == 9: #9 is the ID for Hidden Stash (Pre-Searing)
                     return agent_id
-                if Agent.GetGadgetID(agent_id) == 69: #69 is the ID for Ascalonian Chest
+                if GLOBAL_CACHE.Agent.GetGadgetID(agent_id) == 69: #69 is the ID for Ascalonian Chest
                     return agent_id
-                if Agent.GetGadgetID(agent_id) == 4579: #4579 is the ID for Shing Jea Chest
+                if GLOBAL_CACHE.Agent.GetGadgetID(agent_id) == 4579: #4579 is the ID for Shing Jea Chest
                     return agent_id
-                if Agent.GetGadgetID(agent_id) == 8141: #8141 is the ID for a chest
+                if GLOBAL_CACHE.Agent.GetGadgetID(agent_id) == 8141: #8141 is the ID for a chest
                     return agent_id
 
             return 0
@@ -848,8 +921,7 @@ class Routines:
             Returns: PyAgent.PyAgent: The best target agent object, or None if no target matches.
             """
             from .AgentArray import AgentArray
-            from .Agent import Agent
-            from .Player import Player
+
             best_target = None
             lowest_sum = float('inf')
             nearest_enemy = None
@@ -857,25 +929,25 @@ class Routines:
             lowest_hp_target = None
             lowest_hp = float('inf')
 
-            player_pos = Player.GetXY()
-            agents = AgentArray.GetEnemyArray()
-            agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsAlive(agent_id))
+            player_pos = GLOBAL_CACHE.Player.GetXY()
+            agents = GLOBAL_CACHE.AgentArray.GetEnemyArray()
+            agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
             agents = AgentArray.Filter.ByDistance(agents, player_pos, a_range)
 
             if enchanted_only:
-                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsEnchanted(agent_id))
+                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsEnchanted(agent_id))
 
             if no_hex_only:
-                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsHexed(agent_id))
+                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsHexed(agent_id))
 
             if casting_only:
-                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsCasting(agent_id))
+                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsCasting(agent_id))
 
             for agent_id in agents:
-                agent = Player.GetAgentID()
-                x,y = Agent.GetXY(agent)
+                agent = GLOBAL_CACHE.Player.GetAgentID()
+                x,y = GLOBAL_CACHE.Agent.GetXY(agent)
 
-                distance_to_self = Utils.Distance(Player.GetXY(), (x, y))
+                distance_to_self = Utils.Distance(GLOBAL_CACHE.Player.GetXY(), (x, y))
 
                 # Track the nearest enemy
                 if distance_to_self < nearest_distance:
@@ -883,7 +955,7 @@ class Routines:
                     nearest_distance = distance_to_self
 
                 # Track the agent with the lowest HP
-                agent_hp = Agent.GetHealth(agent)
+                agent_hp = GLOBAL_CACHE.Agent.GetHealth(agent)
                 if agent_hp < lowest_hp:
                     lowest_hp = agent_hp
                     lowest_hp_target = agent
@@ -891,7 +963,7 @@ class Routines:
                 # Calculate the sum of distances between this agent and other agents within range
                 sum_distances = 0
                 for other_agent_id in agents:
-                    other_x, other_y = Agent.GetXY(other_agent_id)
+                    other_x, other_y = GLOBAL_CACHE.Agent.GetXY(other_agent_id)
                     #no need to filter any agent since the array is filtered already
                     sum_distances += Utils.Distance((x, y), (other_x, other_y))
 
@@ -914,8 +986,7 @@ class Routines:
             Returns: PyAgent.PyAgent: The best melee target agent object, or None if no target matches.
             """
             from .AgentArray import AgentArray
-            from .Agent import Agent
-            from .Player import Player
+
             best_target = None
             lowest_sum = float('inf')
             nearest_enemy = None
@@ -923,37 +994,37 @@ class Routines:
             lowest_hp_target = None
             lowest_hp = float('inf')
 
-            player_pos = Player.GetXY()
+            player_pos = GLOBAL_CACHE.Player.GetXY()
             agents = AgentArray.GetEnemyArray()
 
             # Filter out dead, distant, and non-melee agents
-            agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsAlive(agent_id))
-            agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsMelee(agent_id))
+            agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsAlive(agent_id))
+            agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsMelee(agent_id))
             agents = AgentArray.Filter.ByDistance(agents, player_pos, a_range)
 
 
             if enchanted_only:
-                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsEnchanted(agent_id))
+                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsEnchanted(agent_id))
 
             if no_hex_only:
-                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsHexed(agent_id))
+                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsHexed(agent_id))
 
             if casting_only:
-                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: Agent.IsCasting(agent_id))
+                agents = AgentArray.Filter.ByCondition(agents, lambda agent_id: GLOBAL_CACHE.Agent.IsCasting(agent_id))
 
 
             for agent_id in agents:
                 
-                x, y = Agent.GetXY(agent_id)
+                x, y = GLOBAL_CACHE.Agent.GetXY(agent_id)
 
-                distance_to_self = Utils.Distance(Player.GetXY(), (x, y))
+                distance_to_self = Utils.Distance(GLOBAL_CACHE.Player.GetXY(), (x, y))
 
                 # Track the nearest melee enemy
                 if distance_to_self < nearest_distance:
                     nearest_distance = distance_to_self
 
                 # Track the agent with the lowest HP
-                agent_hp = Agent.GetHealth(agent_id) 
+                agent_hp = GLOBAL_CACHE.Agent.GetHealth(agent_id) 
                 if agent_hp < lowest_hp:
                     lowest_hp = agent_hp
 
@@ -961,7 +1032,7 @@ class Routines:
                 # Calculate the sum of distances between this agent and other agents within range
                 sum_distances = 0
                 for other_agent_id in agents:
-                    other_agent_x, other_agent_y = Agent.GetXY(other_agent_id)
+                    other_agent_x, other_agent_y = GLOBAL_CACHE.Agent.GetXY(other_agent_id)
                     sum_distances += Utils.Distance((x, y), (other_agent_x, other_agent_y))
 
                 # Track the best melee target based on the sum of distances
@@ -973,10 +1044,10 @@ class Routines:
         
         @staticmethod
         def GetPartyTargetID():
-            if not Party.IsPartyLoaded():
+            if not GLOBAL_CACHE.Party.IsPartyLoaded():
                 return 0
 
-            players = Party.GetPlayers()
+            players = GLOBAL_CACHE.Party.GetPlayers()
             target = players[0].called_target_id
 
             if target is None or target == 0:
@@ -1045,16 +1116,14 @@ class Routines:
                     tolerance (int, optional): The distance threshold to consider arrival. Defaults to the initialized value.
                 """
                 from Py4GWCoreLib import ActionQueueManager
-                from .Player import Player
                 self.reset()
                 self.waypoint = (x, y)
                 self.tolerance = tolerance if tolerance is not None else self.tolerance
                 self.following = True
                 self.arrived = False
-                if not use_action_queue is None:
-                    Player.Move(x, y)
-                else:
-                    ActionQueueManager().AddAction("ACTION",Player.Move, x, y)
+
+                GLOBAL_CACHE.Player.Move(x, y)
+
                 self.timer.Start()
 
             def reset(self):
@@ -1071,19 +1140,17 @@ class Routines:
                 Update the FollowXY object's state, check if the player has reached the waypoint,
                 and issue new move commands if necessary.
                 """
-                from .Agent import Agent
-                from .Player import Player
                 from Py4GWCoreLib import ActionQueueManager
                 
                 if self._paused:
                     return
                 
                 if self.following:
-                    current_position = Player.GetXY()
-                    is_casting = Agent.IsCasting(Player.GetAgentID())
-                    is_moving = Agent.IsMoving(Player.GetAgentID())
-                    is_knocked_down = Agent.IsKnockedDown(Player.GetAgentID())
-                    is_dead = Agent.IsDead(Player.GetAgentID())
+                    current_position = GLOBAL_CACHE.Player.GetXY()
+                    is_casting = GLOBAL_CACHE.Agent.IsCasting(GLOBAL_CACHE.Player.GetAgentID())
+                    is_moving = GLOBAL_CACHE.Agent.IsMoving(GLOBAL_CACHE.Player.GetAgentID())
+                    is_knocked_down = GLOBAL_CACHE.Agent.IsKnockedDown(GLOBAL_CACHE.Player.GetAgentID())
+                    is_dead = GLOBAL_CACHE.Agent.IsDead(GLOBAL_CACHE.Player.GetAgentID())
 
                     if is_casting or is_moving or is_knocked_down or is_dead:
                         return 
@@ -1102,13 +1169,10 @@ class Routines:
                     # Re-issue the move command if the player is not moving and not casting
                     if self.wait_timer_run_once:
                         # Use the move_to_waypoint function to reissue movement
-                        if not use_action_queue:
-                            Player.Move(0,0) #reset movement pointer?
-                            Player.Move(self.waypoint[0], self.waypoint[1])
-                        else:
-                            ActionQueueManager().AddAction("ACTION",Player.Move, self.waypoint[0]+1, self.waypoint[1]+1)
-                            ActionQueueManager().AddAction("ACTION",Player.Move, self.waypoint[0], self.waypoint[1])
-                            
+
+                        GLOBAL_CACHE.Player.Move(0,0) #reset movement pointer?
+                        GLOBAL_CACHE.Player.Move(self.waypoint[0], self.waypoint[1])
+
                         self.wait_timer_run_once  = False  # Disable immediate re-issue
                         self.wait_timer.Start()  # Start the wait timer to prevent spamming movement
                         if log_actions:
@@ -1124,8 +1188,7 @@ class Routines:
                 """
                 Get the distance between the player and the current waypoint.
                 """
-                from .Player import Player
-                current_position = Player.GetXY()
+                current_position = GLOBAL_CACHE.Player.GetXY()
                 return Utils.Distance(current_position, self.waypoint)
 
             def is_following(self):
@@ -1266,48 +1329,37 @@ class Routines:
         class Player:
             @staticmethod
             def InteractAgent(agent_id:int):
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
-                ActionQueueManager().AddAction("ACTION",Player.Interact, agent_id)
+                GLOBAL_CACHE.Player.Interact(agent_id, False)
                 sleep(0.1)
                 
             @staticmethod
             def InteractTarget():
-                from .Player import Player
-                target_id = Player.GetTargetID()
+                target_id = GLOBAL_CACHE.Player.GetTargetID()
                 if target_id != 0:
                     Routines.Sequential.Player.InteractAgent(target_id)
 
             @staticmethod
             def SendDialog(dialog_id:str):
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
-                ActionQueueManager().AddAction("ACTION",Player.SendDialog, int(dialog_id, 16))
+                GLOBAL_CACHE.Player.SendDialog(int(dialog_id, 16))
                 sleep(0.3)
 
             @staticmethod
             def SetTitle(title_id:int, log=False):
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
-                ActionQueueManager().AddAction("ACTION",Player.SetActiveTitle, title_id)
+                GLOBAL_CACHE.Player.SetActiveTitle(title_id)
                 sleep(0.3)   
                 if log:
                     ConsoleLog("SetTitle", f"Setting title to {title_id}", Console.MessageType.Info) 
 
             @staticmethod
             def SendChatCommand(command:str, log=False):
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
-                ActionQueueManager().AddAction("ACTION",Player.SendChatCommand, command)
+                GLOBAL_CACHE.Player.SendChatCommand(command)
                 sleep(0.3)
                 if log:
                     ConsoleLog("SendChatCommand", f"Sending chat command {command}", Console.MessageType.Info)
 
             @staticmethod
             def Move(x:float, y:float, log=False):
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
-                ActionQueueManager().AddAction("ACTION",Player.Move, x, y)
+                GLOBAL_CACHE.Player.Move(x, y)
                 sleep(0.1)
                 if log:
                     ConsoleLog("MoveTo", f"Moving to {x}, {y}", Console.MessageType.Info)
@@ -1317,10 +1369,14 @@ class Routines:
             def FollowPath(path_points: List[Tuple[float, float]], custom_exit_condition:Callable[[], bool] =lambda: False, tolerance:float=150):
                 import random
                 from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
+                from .Map import Map
+                from .Party import Party
+
                 for idx, (target_x, target_y) in enumerate(path_points):
-                    
-                    ActionQueueManager().AddAction("ACTION",Player.Move, target_x, target_y)
+                    if not Routines.Checks.Map.MapValid():
+                        return []
+                        
+                    GLOBAL_CACHE.Player.Move(target_x, target_y)
                         
                     current_x, current_y = Player.GetXY()
                     previous_distance = Utils.Distance((current_x, current_y), (target_x, target_y))
@@ -1328,6 +1384,10 @@ class Routines:
                     while True:
                         if custom_exit_condition():
                             return
+                        
+                        if not Routines.Checks.Map.MapValid():
+                            return []
+                        
                         
                         current_x, current_y = Player.GetXY()
                         current_distance = Utils.Distance((current_x, current_y), (target_x, target_y))
@@ -1337,7 +1397,7 @@ class Routines:
                             # Inside reissue logic
                             offset_x = random.uniform(-5, 5)
                             offset_y = random.uniform(-5, 5)
-                            ActionQueueManager().AddAction("ACTION",Player.Move, target_x + offset_x, target_y + offset_y)
+                            GLOBAL_CACHE.Player.Move(target_x + offset_x, target_y + offset_y)
                         previous_distance = current_distance                    
                         
                         # Check if arrived
@@ -1356,62 +1416,50 @@ class Routines:
                     log (bool) Optional: Whether to log the action. Default is True.
                 Returns: None
                 """
-                from .Skillbar import SkillBar
-                from Py4GWCoreLib import ActionQueueManager
-                ActionQueueManager().AddAction("ACTION",SkillBar.LoadSkillTemplate, skill_template)
+                GLOBAL_CACHE.SkillBar.LoadSkillTemplate(skill_template)
                 ConsoleLog("LoadSkillbar", f"Loading skill Template {skill_template}", log=log)
                 sleep(0.5)
             
             @staticmethod    
             def CastSkillID (skill_id:int,extra_condition=True, log=False):
-                from .Skillbar import SkillBar
-                from .Skill import Skill
-                from .Player import Player
-                from .Map import Map
-                from Py4GWCoreLib import ActionQueueManager
-                if not Map.IsMapReady():
+                if not GLOBAL_CACHE.Map.IsMapReady():
                     return False
-                player_agent_id = Player.GetAgentID()
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
                 enough_energy = Routines.Checks.Skills.HasEnoughEnergy(player_agent_id,skill_id)
                 skill_ready = Routines.Checks.Skills.IsSkillIDReady(skill_id)
                 
                 if not(enough_energy and skill_ready and extra_condition):
                     return False
-                ActionQueueManager().AddAction("ACTION",SkillBar.UseSkill, SkillBar.GetSlotBySkillID(skill_id))
+                
+                GLOBAL_CACHE.SkillBar.UseSkill(GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id))
                 if log:
-                    ConsoleLog("CastSkillID", f"Cast {Skill.GetName(skill_id)}, slot: {SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
+                    ConsoleLog("CastSkillID", f"Cast {GLOBAL_CACHE.Skill.GetName(skill_id)}, slot: {GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
                 return True
 
             @staticmethod
             def CastSkillSlot(slot:int,extra_condition=True, log=False):
-                from .Skillbar import SkillBar
-                from .Skill import Skill
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
-                player_agent_id = Player.GetAgentID()
-                skill_id = SkillBar.GetSkillIDBySlot(slot)
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
+                skill_id = GLOBAL_CACHE.SkillBar.GetSkillIDBySlot(slot)
                 enough_energy = Routines.Checks.Skills.HasEnoughEnergy(player_agent_id,skill_id)
                 skill_ready = Routines.Checks.Skills.IsSkillSlotReady(slot)
                 
                 if not(enough_energy and skill_ready and extra_condition):
                     return False
-                ActionQueueManager().AddAction("ACTION",SkillBar.UseSkill, slot)
+                
+                GLOBAL_CACHE.SkillBar.UseSkill(slot)
                 if log:
-                    ConsoleLog("CastSkillSlot", f"Cast {Skill.GetName(skill_id)}, slot: {SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
+                    ConsoleLog("CastSkillSlot", f"Cast {GLOBAL_CACHE.Skill.GetName(skill_id)}, slot: {GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
                 return True
                 
         class Map:  
             @staticmethod
             def SetHardMode(log=False):
-                from .Party import Party
-                from Py4GWCoreLib import ActionQueueManager
                 """
                 Purpose: Set the map to hard mode.
                 Args: None
                 Returns: None
                 """
-                
-                ActionQueueManager().AddAction("ACTION",Party.SetHardMode)
+                GLOBAL_CACHE.Party.SetHardMode()
                 sleep(0.5)
                 ConsoleLog("SetHardMode", "Hard mode set.", Console.MessageType.Info, log=log)
 
@@ -1424,23 +1472,20 @@ class Routines:
                     log (bool) Optional: Whether to log the action. Default is True.
                 Returns: None
                 """
-                from .Party import Party
-                from .Map import Map
-                from Py4GWCoreLib import ActionQueueManager
                 
-                if Map.GetMapID() != outpost_id:
-                    ConsoleLog("TravelToOutpost", f"Travelling to {Map.GetMapName(outpost_id)}", log=log)
-                    ActionQueueManager().AddAction("ACTION",Map.Travel, outpost_id)
+                if GLOBAL_CACHE.Map.GetMapID() != outpost_id:
+                    ConsoleLog("TravelToOutpost", f"Travelling to {GLOBAL_CACHE.Map.GetMapName(outpost_id)}", log=log)
+                    GLOBAL_CACHE.Map.Travel(outpost_id)
                     sleep(3)
                     waititng_for_map_load = True
                     while waititng_for_map_load:
-                        if Map.IsMapReady() and Party.IsPartyLoaded() and Map.GetMapID() == outpost_id:
+                        if GLOBAL_CACHE.Map.IsMapReady() and GLOBAL_CACHE.Party.IsPartyLoaded() and GLOBAL_CACHE.Map.GetMapID() == outpost_id:
                             waititng_for_map_load = False
                             break
                         sleep(1)
                     sleep(1)
                 
-                ConsoleLog("TravelToOutpost", f"Arrived at {Map.GetMapName(outpost_id)}", log=log)
+                ConsoleLog("TravelToOutpost", f"Arrived at {GLOBAL_CACHE.Map.GetMapName(outpost_id)}", log=log)
     
             @staticmethod
             def WaitforMapLoad(map_id, log=False):
@@ -1451,32 +1496,27 @@ class Routines:
                     log (bool) Optional: Whether to log the action. Default is True.
                 Returns: None
                 """
-                from .Party import Party
-                from .Map import Map
-
                 waititng_for_map_load = True
                 while waititng_for_map_load:
-                    if not (Map.IsMapReady() and Party.IsPartyLoaded() and Map.GetMapID() == map_id):
+                    if not (GLOBAL_CACHE.Map.IsMapReady() and GLOBAL_CACHE.Party.IsPartyLoaded() and GLOBAL_CACHE.Map.GetMapID() == map_id):
                         sleep(1)
                     else:
                         waititng_for_map_load = False
                         break
                 
-                ConsoleLog("WaitforMapLoad", f"Arrived at {Map.GetMapName(map_id)}", log=log)
+                ConsoleLog("WaitforMapLoad", f"Arrived at {GLOBAL_CACHE.Map.GetMapName(map_id)}", log=log)
                 sleep(1)
                 
         class Agents:
             @staticmethod
             def GetAgentIDByName(agent_name):
-                from .AgentArray import AgentArray
-                from .Agent import Agent
 
-                agent_ids = AgentArray.GetAgentArray()
+                agent_ids = GLOBAL_CACHE.AgentArray.GetAgentArray()
                 agent_names = {}
 
                 # Request all names
                 for agent_id in agent_ids:
-                    Agent.RequestName(agent_id)
+                    GLOBAL_CACHE.Agent.RequestName(agent_id)
 
                 # Wait until all names are ready (with timeout safeguard)
                 timeout = 2.0  # seconds
@@ -1486,7 +1526,7 @@ class Routines:
                 while elapsed < timeout:
                     all_ready = True
                     for agent_id in agent_ids:
-                        if not Agent.IsNameReady(agent_id):
+                        if not GLOBAL_CACHE.Agent.IsNameReady(agent_id):
                             all_ready = False
                             break  # no need to check further
 
@@ -1498,8 +1538,8 @@ class Routines:
 
                 # Populate agent_names dictionary
                 for agent_id in agent_ids:
-                    if Agent.IsNameReady(agent_id):
-                        agent_names[agent_id] = Agent.GetName(agent_id)
+                    if GLOBAL_CACHE.Agent.IsNameReady(agent_id):
+                        agent_names[agent_id] = GLOBAL_CACHE.Agent.GetName(agent_id)
 
                 # Partial, case-insensitive match
                 search_lower = agent_name.lower()
@@ -1508,13 +1548,25 @@ class Routines:
                         return agent_id
 
                 return 0  # Not found
+            
+            @staticmethod
+            def GetAgentIDByModelID(model_id:int):
+                """
+                Purpose: Get the agent ID by model ID.
+                Args:
+                    model_id (int): The model ID of the agent.
+                Returns: int: The agent ID or 0 if not found.
+                """
+                agent_ids = GLOBAL_CACHE.AgentArray.GetAgentArray()
+                for agent_id in agent_ids:
+                    if GLOBAL_CACHE.Agent.GetModelID(agent_id) == model_id:
+                        return agent_id
+                return 0
 
             @staticmethod
             def ChangeTarget(agent_id):
-                from .Player import Player
-                from Py4GWCoreLib import ActionQueueManager
                 if agent_id != 0:
-                    ActionQueueManager().AddAction("ACTION",Player.ChangeTarget, agent_id)
+                    GLOBAL_CACHE.Player.ChangeTarget(agent_id)
                     sleep(0.25)    
                 
             @staticmethod
@@ -1556,11 +1608,10 @@ class Routines:
             @staticmethod
             def InteractWithNearestChest():
                 """Target and interact with chest and items."""
-                from .Player import Player
-                from .Agent import Agent
                 from Py4GWCoreLib import ActionQueueManager
+                from Py4GWCoreLib import LootConfig
                 nearest_chest = Routines.Agents.GetNearestChest(2500)
-                chest_x, chest_y = Agent.GetXY(nearest_chest)
+                chest_x, chest_y = GLOBAL_CACHE.Agent.GetXY(nearest_chest)
     
 
                 Routines.Sequential.Movement.FollowPath([(chest_x, chest_y)])
@@ -1568,19 +1619,20 @@ class Routines:
             
                 Routines.Sequential.Player.InteractAgent(nearest_chest)
                 sleep(0.5)
-                ActionQueueManager().AddAction("ACTION",Player.SendDialog, 2)
+                ActionQueueManager().AddAction("ACTION",GLOBAL_CACHE.Player.SendDialog, 2)
                 sleep(1)
 
                 Routines.Sequential.Agents.TargetNearestItem(distance=300)
+                filtered_loot = LootConfig().GetfilteredLootArray(Range.Area.value, multibox_loot= True)
+                item = Utils.GetFirstFromArray(filtered_loot)
+                Routines.Sequential.Agents.ChangeTarget(item)
                 Routines.Sequential.Player.InteractTarget()
                 sleep(1)
                 
             @staticmethod
             def InteractWithAgentByName(agent_name:str):
-                from .Player import Player
-                from .Agent import Agent
                 Routines.Sequential.Agents.TargetAgentByName(agent_name)
-                agent_x, agent_y = Agent.GetXY(Player.GetTargetID())
+                agent_x, agent_y = GLOBAL_CACHE.Agent.GetXY(GLOBAL_CACHE.Player.GetTargetID())
 
                 Routines.Sequential.Movement.FollowPath([(agent_x, agent_y)])
                 sleep(0.5)
@@ -1590,10 +1642,8 @@ class Routines:
                 
             @staticmethod
             def InteractWithAgentXY(x:float, y:float):
-                from .Player import Player
-                from .Agent import Agent
                 Routines.Sequential.Agents.TargetNearestNPCXY(x, y, 100)
-                agent_x, agent_y = Agent.GetXY(Player.GetTargetID())
+                agent_x, agent_y = GLOBAL_CACHE.Agent.GetXY(GLOBAL_CACHE.Player.GetTargetID())
 
                 Routines.Sequential.Movement.FollowPath([(agent_x, agent_y)])
                 sleep(1)
@@ -1604,18 +1654,16 @@ class Routines:
         class Merchant:
             @staticmethod
             def SellItems(item_array:list[int], log=False):
-                from .Item import Item
-                from .Merchant import Trading
                 from Py4GWCoreLib import ActionQueueManager
                 if len(item_array) == 0:
                     ActionQueueManager().ResetQueue("MERCHANT")
                     return
                 
                 for item_id in item_array:
-                    quantity = Item.Properties.GetQuantity(item_id)
-                    value = Item.Properties.GetValue(item_id)
+                    quantity = GLOBAL_CACHE.Item.Properties.GetQuantity(item_id)
+                    value = GLOBAL_CACHE.Item.Properties.GetValue(item_id)
                     cost = quantity * value
-                    ActionQueueManager().AddAction("MERCHANT",Trading.Merchant.SellItem, item_id, cost)
+                    GLOBAL_CACHE.Trading.Merchant.SellItem(item_id, cost)
                        
                 while not ActionQueueManager().IsEmpty("MERCHANT"):
                     sleep(0.35)
@@ -1625,16 +1673,14 @@ class Routines:
 
             @staticmethod
             def BuyIDKits(kits_to_buy:int, log=False):
-                from .Item import Item
                 from .ItemArray import ItemArray
-                from .Merchant import Trading
                 from Py4GWCoreLib import ActionQueueManager
                 if kits_to_buy <= 0:
                     ActionQueueManager().ResetQueue("MERCHANT")
                     return
 
-                merchant_item_list = Trading.Merchant.GetOfferedItems()
-                merchant_item_list = ItemArray.Filter.ByCondition(merchant_item_list, lambda item_id: Item.GetModelID(item_id) == 5899)
+                merchant_item_list = GLOBAL_CACHE.Trading.Merchant.GetOfferedItems()
+                merchant_item_list = ItemArray.Filter.ByCondition(merchant_item_list, lambda item_id: GLOBAL_CACHE.Item.GetModelID(item_id) == 5899)
 
                 if len(merchant_item_list) == 0:
                     ActionQueueManager().ResetQueue("MERCHANT")
@@ -1642,8 +1688,8 @@ class Routines:
                 
                 for i in range(kits_to_buy):
                     item_id = merchant_item_list[0]
-                    value = Item.Properties.GetValue(item_id) * 2 # value reported is sell value not buy value
-                    ActionQueueManager().AddAction("MERCHANT",Trading.Merchant.BuyItem, item_id, value)
+                    value = GLOBAL_CACHE.Item.Properties.GetValue(item_id) * 2 # value reported is sell value not buy value
+                    GLOBAL_CACHE.Trading.Merchant.BuyItem(item_id, value)
                     
                 while not ActionQueueManager().IsEmpty("MERCHANT"):
                     sleep(0.35)
@@ -1653,16 +1699,14 @@ class Routines:
 
             @staticmethod
             def BuySalvageKits(kits_to_buy:int, log=False):
-                from .Item import Item
                 from .ItemArray import ItemArray
-                from .Merchant import Trading
                 from Py4GWCoreLib import ActionQueueManager
                 if kits_to_buy <= 0:
                     ActionQueueManager().ResetQueue("MERCHANT")
                     return
 
-                merchant_item_list = Trading.Merchant.GetOfferedItems()
-                merchant_item_list = ItemArray.Filter.ByCondition(merchant_item_list, lambda item_id: Item.GetModelID(item_id) == 2992)
+                merchant_item_list = GLOBAL_CACHE.Trading.Merchant.GetOfferedItems()
+                merchant_item_list = ItemArray.Filter.ByCondition(merchant_item_list, lambda item_id: GLOBAL_CACHE.Item.GetModelID(item_id) == 2992)
 
                 if len(merchant_item_list) == 0:
                     ActionQueueManager().ResetQueue("MERCHANT")
@@ -1670,8 +1714,8 @@ class Routines:
                 
                 for i in range(kits_to_buy):
                     item_id = merchant_item_list[0]
-                    value = Item.Properties.GetValue(item_id) * 2
-                    ActionQueueManager().AddAction("MERCHANT",Trading.Merchant.BuyItem, item_id, value)
+                    value = GLOBAL_CACHE.Item.Properties.GetValue(item_id) * 2
+                    GLOBAL_CACHE.Trading.Merchant.BuyItem(item_id, value)
                     
                 while not ActionQueueManager().IsEmpty("MERCHANT"):
                     sleep(0.35)
@@ -1683,7 +1727,7 @@ class Routines:
             @staticmethod
             def _salvage_item(item_id):
                 from .Inventory import Inventory
-                salvage_kit = Inventory.GetFirstSalvageKit()
+                salvage_kit = GLOBAL_CACHE.Inventory.GetFirstSalvageKit()
                 if salvage_kit == 0:
                     ConsoleLog("SalvageItems", "No salvage kits found.", Console.MessageType.Warning)
                     return
@@ -1709,7 +1753,7 @@ class Routines:
             @staticmethod
             def _identify_item(item_id):
                 from .Inventory import Inventory
-                id_kit = Inventory.GetFirstIDKit()
+                id_kit = GLOBAL_CACHE.Inventory.GetFirstIDKit()
                 if id_kit == 0:
                     ConsoleLog("IdentifyItems", "No ID kits found.", Console.MessageType.Warning)
                     return
@@ -1733,20 +1777,19 @@ class Routines:
                     
             @staticmethod
             def DepositItems(item_array:list[int], log=False):
-                from .Inventory import Inventory
                 from Py4GWCoreLib import ActionQueueManager
                 if len(item_array) == 0:
                     ActionQueueManager().ResetQueue("ACTION")
                     return
                 
-                total_items, total_capacity = Inventory.GetStorageSpace()
+                total_items, total_capacity = GLOBAL_CACHE.Inventory.GetStorageSpace()
                 free_slots = total_capacity - total_items
                 
                 if free_slots <= 0:
                     return
 
                 for item_id in item_array:
-                    ActionQueueManager().AddAction("ACTION",Inventory.DepositItemToStorage, item_id)
+                    GLOBAL_CACHE.Inventory.DepositItemToStorage(item_id)
                     
                 while not ActionQueueManager().IsEmpty("ACTION"):
                     sleep(0.35)
@@ -1756,11 +1799,8 @@ class Routines:
                     
             @staticmethod
             def DepositGold(gold_amount_to_leave_on_character: int, log=False):
-                from .Inventory import Inventory
-                from Py4GWCoreLib import ActionQueueManager
-                
-                gold_amount_on_character = Inventory.GetGoldOnCharacter()
-                gold_amount_on_storage = Inventory.GetGoldInStorage()
+                gold_amount_on_character = GLOBAL_CACHE.Inventory.GetGoldOnCharacter()
+                gold_amount_on_storage = GLOBAL_CACHE.Inventory.GetGoldInStorage()
                 
                 max_allowed_gold = 100000  # Max storage limit
                 available_space = max_allowed_gold - gold_amount_on_storage  # How much can be deposited
@@ -1778,7 +1818,7 @@ class Routines:
                     return False
 
                 # Perform the deposit
-                ActionQueueManager().AddAction("ACTION",Inventory.DepositGold, gold_to_deposit)
+                GLOBAL_CACHE.Inventory.DepositGold(gold_to_deposit)
                 
                 sleep(0.35)
                 
@@ -1789,11 +1829,15 @@ class Routines:
 
             @staticmethod
             def LootItems(item_array:list[int], log=False):
-                from Py4GWCoreLib import ActionQueueManager
                 from .Agent import Agent
+                from .Map import Map
                 if len(item_array) == 0:
                     return
                 
+                if not Routines.Checks.Map.MapValid():
+                    ActionQueueManager().ResetAllQueues()
+                    return
+
                 while len (item_array) > 0:
                     item_id = item_array.pop(0)
                     if item_id == 0:
@@ -1801,13 +1845,717 @@ class Routines:
                     if not Agent.IsValid(item_id):
                         continue
                     item_x, item_y = Agent.GetXY(item_id)
+                    if not Routines.Checks.Map.MapValid():
+                        ActionQueueManager().ResetAllQueues()
+                        return
                     Routines.Sequential.Movement.FollowPath([(item_x, item_y)])
+                    if not Routines.Checks.Map.MapValid():
+                        ActionQueueManager().ResetAllQueues()
+                        return
                     if Agent.IsValid(item_id):
-                        Routines.Sequential.Player.InteractAgent(item_id)
+                        GLOBAL_CACHE.Player.Interact(item_id, False)
                         sleep(1.250)
                     
                 if log and len(item_array) > 0:
                     ConsoleLog("LootItems", f"Looted {len(item_array)} items.", Console.MessageType.Info)
+
+
+#endregion
+
+
+#region yield
+    class Yield:
+        @staticmethod
+        def wait(ms: int):
+            import time
+            start = time.time()
+            while (time.time() - start) * 1000 < ms:
+                yield
+                
+        class Player:
+            @staticmethod
+            def InteractAgent(agent_id:int):
+                GLOBAL_CACHE.Player.Interact(agent_id, False)
+                yield from Routines.Yield.wait(100)
+                
+            @staticmethod
+            def InteractTarget():
+                target_id = GLOBAL_CACHE.Player.GetTargetID()
+                if target_id != 0:
+                    yield from Routines.Yield.Player.InteractAgent(target_id)
+
+            @staticmethod
+            def SendDialog(dialog_id:str):
+                GLOBAL_CACHE.Player.SendDialog(int(dialog_id, 16))
+                yield from Routines.Yield.wait(300)
+
+            @staticmethod
+            def SetTitle(title_id:int, log=False):
+                GLOBAL_CACHE.Player.SetActiveTitle(title_id)
+                yield from Routines.Yield.wait(300)   
+                if log:
+                    ConsoleLog("SetTitle", f"Setting title to {title_id}", Console.MessageType.Info) 
+
+            @staticmethod
+            def SendChatCommand(command:str, log=False):
+                GLOBAL_CACHE.Player.SendChatCommand(command)
+                yield from Routines.Yield.wait(300)
+                if log:
+                    ConsoleLog("SendChatCommand", f"Sending chat command {command}", Console.MessageType.Info)
+
+            @staticmethod
+            def Move(x:float, y:float, log=False):
+                GLOBAL_CACHE.Player.Move(x, y)
+                yield from Routines.Yield.wait(100)
+                if log:
+                    ConsoleLog("MoveTo", f"Moving to {x}, {y}", Console.MessageType.Info)
+
+        class Movement:
+            @staticmethod
+            def FollowPath(
+                path_points: List[Tuple[float, float]],
+                custom_exit_condition: Callable[[], bool] = lambda: False,
+                tolerance: float = 150,
+                log: bool = False,
+                timeout: int = -1,
+                progress_callback: Optional[Callable[[float], None]] = None,
+                custom_pause_fn: Optional[Callable[[], bool]] = None 
+            ):
+                import random
+                start_time = Utils.GetBaseTimestamp()
+                total_points = len(path_points)
+
+                for idx, (target_x, target_y) in enumerate(path_points):
+                    if not Routines.Checks.Map.MapValid():
+                        ActionQueueManager().ResetAllQueues()
+                        return False
+
+                    GLOBAL_CACHE.Player.Move(target_x, target_y)
+
+                    current_x, current_y = GLOBAL_CACHE.Player.GetXY()
+                    previous_distance = Utils.Distance((current_x, current_y), (target_x, target_y))
+
+                    while True:
+                        if custom_exit_condition():
+                            if log:
+                                ConsoleLog("FollowPath", "Custom exit condition met, stopping movement.", Console.MessageType.Info)
+                            return False
+
+                        if not Routines.Checks.Map.MapValid():
+                            ActionQueueManager().ResetAllQueues()
+                            return False
+                        
+                        if custom_pause_fn:
+                            while custom_pause_fn():
+                                if log:
+                                    ConsoleLog("FollowPath", "Custom pause condition active, pausing movement...", Console.MessageType.Debug)
+                                start_time = Utils.GetBaseTimestamp()  # Reset timeout timer
+                                yield from Routines.Yield.wait(500)
+                        
+
+                        current_time = Utils.GetBaseTimestamp()
+                        delta = current_time - start_time
+                        if delta > timeout and timeout > 0:
+                            ConsoleLog("FollowPath", "Timeout reached, stopping movement.", Console.MessageType.Warning)
+                            return False
+
+                        current_x, current_y = GLOBAL_CACHE.Player.GetXY()
+                        current_distance = Utils.Distance((current_x, current_y), (target_x, target_y))
+
+                        if not (current_distance < previous_distance):
+                            offset_x = random.uniform(-5, 5)
+                            offset_y = random.uniform(-5, 5)
+                            if log:
+                                ConsoleLog("FollowPath", f"move to {target_x + offset_x}, {target_y + offset_y}", Console.MessageType.Info)
+                            if not Routines.Checks.Map.MapValid():
+                                ActionQueueManager().ResetAllQueues()
+                                return False
+                            GLOBAL_CACHE.Player.Move(target_x + offset_x, target_y + offset_y)
+
+                        previous_distance = current_distance
+
+                        if current_distance <= tolerance:
+                            break
+                        else:
+                            if log:
+                                ConsoleLog("FollowPath", f"Current distance to target: {current_distance}, waiting...", Console.MessageType.Info)
+
+                        yield from Routines.Yield.wait(250)
+
+                    #After reaching each point, report progress
+                    if progress_callback:
+                        progress_callback((idx + 1) / total_points)
+
+                return True
+
+
+        class Skills:
+            @staticmethod
+            def LoadSkillbar(skill_template:str, log=False):
+                """
+                Purpose: Load the specified skillbar.
+                Args:
+                    skill_template (str): The name of the skill template to load.
+                    log (bool) Optional: Whether to log the action. Default is True.
+                Returns: None
+                """
+                GLOBAL_CACHE.SkillBar.LoadSkillTemplate(skill_template)
+                ConsoleLog("LoadSkillbar", f"Loading skill Template {skill_template}", log=log)
+                yield from Routines.Yield.wait(500)
+            
+            @staticmethod    
+            def CastSkillID (skill_id:int,extra_condition=True, aftercast_delay=0,  log=False):
+                if not GLOBAL_CACHE.Map.IsMapReady():
+                    return False
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
+                enough_energy = Routines.Checks.Skills.HasEnoughEnergy(player_agent_id,skill_id)
+                skill_ready = Routines.Checks.Skills.IsSkillIDReady(skill_id)
+                
+                if not(enough_energy and skill_ready and extra_condition):
+                    return False
+                GLOBAL_CACHE.SkillBar.UseSkill(GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id), aftercast_delay=aftercast_delay)
+                if log:
+                    ConsoleLog("CastSkillID", f"Cast {GLOBAL_CACHE.Skill.GetName(skill_id)}, slot: {GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
+                return True
+
+            @staticmethod
+            def CastSkillSlot(slot:int,extra_condition=True, aftercast_delay=0, log=False):
+                player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
+                skill_id = GLOBAL_CACHE.SkillBar.GetSkillIDBySlot(slot)
+                enough_energy = Routines.Checks.Skills.HasEnoughEnergy(player_agent_id,skill_id)
+                skill_ready = Routines.Checks.Skills.IsSkillSlotReady(slot)
+                
+                if not(enough_energy and skill_ready and extra_condition):
+                    return False
+                GLOBAL_CACHE.SkillBar.UseSkill(slot, aftercast_delay=aftercast_delay)
+                if log:
+                    ConsoleLog("CastSkillSlot", f"Cast {GLOBAL_CACHE.Skill.GetName(skill_id)}, slot: {GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
+                return True
+                
+        class Map:  
+            @staticmethod
+            def SetHardMode(log=False):
+                """
+                Purpose: Set the map to hard mode.
+                Args: None
+                Returns: None
+                """
+                GLOBAL_CACHE.Party.SetHardMode()
+                yield from Routines.Yield.wait(500)
+                ConsoleLog("SetHardMode", "Hard mode set.", Console.MessageType.Info, log=log)
+
+            @staticmethod
+            def TravelToOutpost(outpost_id, log=False, timeout:int=10000):
+                """
+                Purpose: Positions yourself safely on the outpost.
+                Args:
+                    outpost_id (int): The ID of the outpost to travel to.
+                    log (bool) Optional: Whether to log the action. Default is True.
+                Returns: None
+                """
+                start_time = Utils.GetBaseTimestamp()
+                if GLOBAL_CACHE.Map.GetMapID() != outpost_id:
+                    ConsoleLog("TravelToOutpost", f"Travelling to {GLOBAL_CACHE.Map.GetMapName(outpost_id)}", log=log)
+                    GLOBAL_CACHE.Map.Travel(outpost_id)
+                    yield from Routines.Yield.wait(3000)
+                    waititng_for_map_load = True
+                    while waititng_for_map_load:
+                        if GLOBAL_CACHE.Map.IsMapReady() and GLOBAL_CACHE.Party.IsPartyLoaded() and GLOBAL_CACHE.Map.GetMapID() == outpost_id:
+                            waititng_for_map_load = False
+                            break
+                        delta = Utils.GetBaseTimestamp() - start_time
+                        if delta > timeout and timeout > 0:
+                            ConsoleLog("TravelToOutpost", "Timeout reached, stopping waiting for map load.", log=log)
+                            return False
+                        yield from Routines.Yield.wait(1000)
+                    yield from Routines.Yield.wait(1000)
+                
+                ConsoleLog("TravelToOutpost", f"Arrived at {GLOBAL_CACHE.Map.GetMapName(outpost_id)}", log=log)
+                return True
+    
+            @staticmethod
+            def TravelToRegion(outpost_id, region, district, language=0, log=False):
+                """
+                Purpose: Positions yourself safely on the outpost.
+                Args:
+                    outpost_id (int): The ID of the outpost to travel to.
+                    region (int): The region ID to travel to.
+                    district (int): The district ID to travel to.
+                    laguage (int): The language ID to travel to. Default is 0.
+                    log (bool) Optional: Whether to log the action. Default is True.
+                Returns: None
+                """
+                
+                if GLOBAL_CACHE.Map.GetMapID() != outpost_id:
+                    ConsoleLog("TravelToRegion", f"Travelling to {GLOBAL_CACHE.Map.GetMapName(outpost_id)}", log=log)
+                    GLOBAL_CACHE.Map.TravelToRegion(outpost_id, region, district, language)
+                    yield from Routines.Yield.wait(2000)
+                    waititng_for_map_load = True
+                    while waititng_for_map_load:
+                        if GLOBAL_CACHE.Map.IsMapReady() and GLOBAL_CACHE.Party.IsPartyLoaded() and GLOBAL_CACHE.Map.GetMapID() == outpost_id:
+                            waititng_for_map_load = False
+                            break
+                        yield from Routines.Yield.wait(1000)
+                    yield from Routines.Yield.wait(1000)
+                
+                ConsoleLog("TravelToRegion", f"Arrived at {GLOBAL_CACHE.Map.GetMapName(outpost_id)}", log=log)
+    
+    
+            @staticmethod
+            def WaitforMapLoad(map_id, log=False, timeout:int=10000):
+                """
+                Purpose: Positions yourself safely on the map.
+                Args:
+                    outpost_id (int): The ID of the map to travel to.
+                    log (bool) Optional: Whether to log the action. Default is True.
+                Returns: None
+                """
+                yield from Routines.Yield.wait(1000)
+                start_time = Utils.GetBaseTimestamp()
+                waititng_for_map_load = True
+                while waititng_for_map_load:
+                    if not Routines.Checks.Map.MapValid():
+                        yield from Routines.Yield.wait(1000)
+                        ConsoleLog("WaitforMapLoad", "Map not valid, waiting...", log=log)
+                        continue
+                    
+                    delta = Utils.GetBaseTimestamp() - start_time
+                    if delta > timeout and timeout > 0:
+                        ConsoleLog("WaitforMapLoad", "Timeout reached, stopping waiting for map load.", log=log)
+                        return False
+                       
+                    current_map = GLOBAL_CACHE.Map.GetMapID()
+                    
+                    if (GLOBAL_CACHE.Map.IsExplorable() or GLOBAL_CACHE.Map.IsOutpost()) and current_map != map_id:
+                        ConsoleLog("WaitforMapLoad", f"Something went wrong, halting", log=log)
+                        yield from Routines.Yield.wait(1000)
+                        return False
+                    
+                    if not current_map == map_id:
+                        yield from Routines.Yield.wait(1000)
+                        ConsoleLog("WaitforMapLoad", f"Waiting for map load {map_id} (current: {current_map})", log=log)
+                        continue
+                
+                    waititng_for_map_load = False
+
+                
+                ConsoleLog("WaitforMapLoad", f"Arrived at {GLOBAL_CACHE.Map.GetMapName(map_id)}", log=log)
+                yield from Routines.Yield.wait(1000)
+                return True
+                
+        class Agents:
+            @staticmethod
+            def GetAgentIDByName(agent_name):
+                agent_ids = GLOBAL_CACHE.AgentArray.GetAgentArray()
+                agent_names = {}
+
+                # Request all names
+                for agent_id in agent_ids:
+                    GLOBAL_CACHE.Agent.RequestName(agent_id)
+
+                # Wait until all names are ready (with timeout safeguard)
+                timeout = 2.0  # seconds
+                poll_interval = 0.1
+                elapsed = 0.0
+
+                while elapsed < timeout:
+                    all_ready = True
+                    for agent_id in agent_ids:
+                        if not GLOBAL_CACHE.Agent.IsNameReady(agent_id):
+                            all_ready = False
+                            break  # no need to check further
+
+                    if all_ready:
+                        break  # exit early, all names ready
+
+                    yield from Routines.Yield.wait(int(poll_interval) * 1000)
+                    elapsed += poll_interval
+
+                # Populate agent_names dictionary
+                for agent_id in agent_ids:
+                    if GLOBAL_CACHE.Agent.IsNameReady(agent_id):
+                        agent_names[agent_id] = GLOBAL_CACHE.Agent.GetName(agent_id)
+
+                # Partial, case-insensitive match
+                search_lower = agent_name.lower()
+                for agent_id, name in agent_names.items():
+                    if search_lower in name.lower():
+                        return agent_id
+
+                return 0  # Not found
+
+            @staticmethod
+            def GetAgentIDByModelID(model_id:int):
+                """
+                Purpose: Get the agent ID by model ID.
+                Args:
+                    model_id (int): The model ID of the agent.
+                Returns: int: The agent ID or 0 if not found.
+                """
+                agent_ids = GLOBAL_CACHE.AgentArray.GetAgentArray()
+                for agent_id in agent_ids:
+                    if GLOBAL_CACHE.Agent.GetModelID(agent_id) == model_id:
+                        return agent_id
+                return 0
+
+            @staticmethod
+            def ChangeTarget(agent_id):
+                if agent_id != 0:
+                    GLOBAL_CACHE.Player.ChangeTarget(agent_id)
+                    yield from Routines.Yield.wait(250)   
+                    
+            @staticmethod
+            def InteractAgent(agent_id:int):
+                if agent_id != 0:
+                    GLOBAL_CACHE.Player.Interact(agent_id, False)
+                    yield from Routines.Yield.wait(100) 
+                
+            @staticmethod
+            def TargetAgentByName(agent_name:str):
+                agent_id =  yield from Routines.Yield.Agents.GetAgentIDByName(agent_name)
+                if agent_id != 0:
+                    yield from Routines.Yield.Agents.ChangeTarget(agent_id)
+
+            @staticmethod
+            def TargetNearestNPC(distance:float = 4500.0):
+                nearest_npc = Routines.Agents.GetNearestNPC(distance)
+                if nearest_npc != 0:
+                    yield from Routines.Yield.Agents.ChangeTarget(nearest_npc)
+
+            @staticmethod
+            def TargetNearestNPCXY(x,y,distance):
+                nearest_npc = Routines.Agents.GetNearestNPCXY(x,y, distance)
+                if nearest_npc != 0:
+                    yield from Routines.Yield.Agents.ChangeTarget(nearest_npc)
+        
+            @staticmethod
+            def TargetNearestEnemy(distance):
+                nearest_enemy = Routines.Agents.GetNearestEnemy(distance)
+                if nearest_enemy != 0: 
+                    yield from Routines.Yield.Agents.ChangeTarget(nearest_enemy)
+            
+            @staticmethod
+            def TargetNearestItem(distance):
+                nearest_item = Routines.Agents.GetNearestItem(distance)
+                if nearest_item != 0:
+                    yield from Routines.Yield.Agents.ChangeTarget(nearest_item)
+                    
+            @staticmethod
+            def TargetNearestChest(distance):
+                nearest_chest = Routines.Agents.GetNearestChest(distance)
+                if nearest_chest != 0:
+                    yield from Routines.Yield.Agents.ChangeTarget(nearest_chest)
+                    
+            @staticmethod
+            def InteractWithNearestChest():
+                """Target and interact with chest and items."""
+                from Py4GWCoreLib import LootConfig
+                nearest_chest = Routines.Agents.GetNearestChest(2500)
+                chest_x, chest_y = GLOBAL_CACHE.Agent.GetXY(nearest_chest)
+    
+
+                yield from Routines.Yield.Movement.FollowPath([(chest_x, chest_y)])
+                yield from Routines.Yield.wait(500)
+            
+                yield from Routines.Yield.Player.InteractAgent(nearest_chest)
+                yield from Routines.Yield.wait(500)
+                GLOBAL_CACHE.Player.SendDialog(2)
+                yield from Routines.Yield.wait(1000)
+
+                yield from Routines.Yield.Agents.TargetNearestItem(distance=300)
+                filtered_loot = LootConfig().GetfilteredLootArray(Range.Area.value, multibox_loot= True)
+                item = Utils.GetFirstFromArray(filtered_loot)
+                yield from Routines.Yield.Agents.ChangeTarget(item)
+                yield from Routines.Yield.Player.InteractTarget()
+                yield from Routines.Yield.wait(1000)
+                
+            @staticmethod
+            def InteractWithAgentByName(agent_name:str):
+                yield from Routines.Yield.Agents.TargetAgentByName(agent_name)
+                agent_x, agent_y = GLOBAL_CACHE.Agent.GetXY(GLOBAL_CACHE.Player.GetTargetID())
+
+                yield from Routines.Yield.Movement.FollowPath([(agent_x, agent_y)])
+                yield from Routines.Yield.wait(500)
+                
+                yield from Routines.Yield.Player.InteractTarget()
+                yield from Routines.Yield.wait(1000)
+                
+            @staticmethod
+            def InteractWithAgentXY(x:float, y:float):
+                yield from Routines.Yield.Agents.TargetNearestNPCXY(x, y, 100)
+                agent_x, agent_y = GLOBAL_CACHE.Agent.GetXY(GLOBAL_CACHE.Player.GetTargetID())
+
+                follow_result = yield from Routines.Yield.Movement.FollowPath([(agent_x, agent_y)], timeout=15000)
+                if not follow_result:
+                    ConsoleLog("InteractWithAgentXY", "TIMEOUT on follow path to agent.", Console.MessageType.Warning)
+                    return False
+                yield from Routines.Yield.wait(500)
+                
+                yield from Routines.Yield.Player.InteractTarget()
+                yield from Routines.Yield.wait(500)
+                return True
+                
+        class Merchant:
+            @staticmethod
+            def SellItems(item_array:list[int], log=False):
+                from Py4GWCoreLib import ActionQueueManager
+                if len(item_array) == 0:
+                    ActionQueueManager().ResetQueue("MERCHANT")
+                    return
+                
+                for item_id in item_array:
+                    quantity = GLOBAL_CACHE.Item.Properties.GetQuantity(item_id)
+                    value = GLOBAL_CACHE.Item.Properties.GetValue(item_id)
+                    cost = quantity * value
+                    GLOBAL_CACHE.Trading.Merchant.SellItem(item_id, cost)
+                       
+                while not ActionQueueManager().IsEmpty("MERCHANT"):
+                    yield from Routines.Yield.wait(50)
+                
+                if log:
+                    ConsoleLog("SellItems", f"Sold {len(item_array)} items.", Console.MessageType.Info)
+
+            @staticmethod
+            def BuyIDKits(kits_to_buy:int, log=False):
+                from Py4GWCoreLib import ActionQueueManager
+                from .ItemArray import ItemArray
+                if kits_to_buy <= 0:
+                    ActionQueueManager().ResetQueue("MERCHANT")
+                    return
+
+                merchant_item_list = GLOBAL_CACHE.Trading.Merchant.GetOfferedItems()
+                merchant_item_list = ItemArray.Filter.ByCondition(merchant_item_list, lambda item_id: GLOBAL_CACHE.Item.GetModelID(item_id) == 5899)
+
+                if len(merchant_item_list) == 0:
+                    ActionQueueManager().ResetQueue("MERCHANT")
+                    return
+                
+                for i in range(kits_to_buy):
+                    item_id = merchant_item_list[0]
+                    value = GLOBAL_CACHE.Item.Properties.GetValue(item_id) * 2 # value reported is sell value not buy value
+                    GLOBAL_CACHE.Trading.Merchant.BuyItem(item_id, value)
+                    
+                while not ActionQueueManager().IsEmpty("MERCHANT"):
+                    yield from Routines.Yield.wait(50)
+                    
+                if log:
+                    ConsoleLog("BuyIDKits", f"Bought {kits_to_buy} ID Kits.", Console.MessageType.Info)
+
+            @staticmethod
+            def BuySalvageKits(kits_to_buy:int, log=False):
+                from .ItemArray import ItemArray
+                from Py4GWCoreLib import ActionQueueManager
+                if kits_to_buy <= 0:
+                    ActionQueueManager().ResetQueue("MERCHANT")
+                    return
+
+                merchant_item_list = GLOBAL_CACHE.Trading.Merchant.GetOfferedItems()
+                merchant_item_list = ItemArray.Filter.ByCondition(merchant_item_list, lambda item_id: GLOBAL_CACHE.Item.GetModelID(item_id) == 2992)
+
+                if len(merchant_item_list) == 0:
+                    ActionQueueManager().ResetQueue("MERCHANT")
+                    return
+                
+                for i in range(kits_to_buy):
+                    item_id = merchant_item_list[0]
+                    value = GLOBAL_CACHE.Item.Properties.GetValue(item_id) * 2
+                    GLOBAL_CACHE.Trading.Merchant.BuyItem(item_id, value)
+                    
+                while not ActionQueueManager().IsEmpty("MERCHANT"):
+                    yield from Routines.Yield.wait(50)
+                
+                if log:
+                    ConsoleLog("BuySalvageKits", f"Bought {kits_to_buy} Salvage Kits.", Console.MessageType.Info)
+
+        class Items:
+            @staticmethod
+            def _wait_for_salvage_materials_window():
+                from Py4GWCoreLib import UIManager
+                yield from Routines.Yield.wait(150)
+                salvage_materials_frame = UIManager.GetChildFrameID(140452905, [6, 100, 6])
+                while not UIManager.FrameExists(salvage_materials_frame):
+                    yield from Routines.Yield.wait(50)
+                yield from Routines.Yield.wait(50)
+            
+            @staticmethod
+            def _wait_for_empty_queue(queue_name:str):
+                from Py4GWCoreLib import ActionQueueManager
+                while not ActionQueueManager().IsEmpty(queue_name):
+                    yield from Routines.Yield.wait(50)
+                
+            @staticmethod
+            def _salvage_item(item_id):
+                from .Inventory import Inventory
+                salvage_kit = GLOBAL_CACHE.Inventory.GetFirstSalvageKit()
+                if salvage_kit == 0:
+                    ConsoleLog("SalvageItems", "No salvage kits found.", Console.MessageType.Warning)
+                    return
+                Inventory.SalvageItem(item_id, salvage_kit)
+                
+            @staticmethod
+            def SalvageItems(item_array:list[int], log=False):
+                from Py4GWCoreLib import ActionQueueManager
+                from .Inventory import Inventory
+                if len(item_array) == 0:
+                    ActionQueueManager().ResetQueue("SALVAGE")
+                    return
+                
+                for item_id in item_array:
+                    _,rarity = GLOBAL_CACHE.Item.Rarity.GetRarity(item_id)
+                    is_purple = rarity == "Purple"
+                    is_gold = rarity == "Gold"
+                    ActionQueueManager().AddAction("SALVAGE", Routines.Yield.Items._salvage_item, item_id)
+                    yield from Routines.Yield.Items._wait_for_empty_queue("SALVAGE")
+                    
+                    if (is_purple or is_gold):
+                        yield from Routines.Yield.Items._wait_for_salvage_materials_window()
+                        ActionQueueManager().AddAction("SALVAGE", Inventory.AcceptSalvageMaterialsWindow)
+                        yield from Routines.Yield.Items._wait_for_empty_queue("SALVAGE")
+                        
+                    yield from Routines.Yield.wait(100)
+                    
+                if log and len(item_array) > 0:
+                    ConsoleLog("SalvageItems", f"Salvaged {len(item_array)} items.", Console.MessageType.Info)
+                    
+            @staticmethod
+            def _identify_item(item_id):
+                from .Inventory import Inventory
+                id_kit = GLOBAL_CACHE.Inventory.GetFirstIDKit()
+                if id_kit == 0:
+                    ConsoleLog("IdentifyItems", "No ID kits found.", Console.MessageType.Warning)
+                    return
+                Inventory.IdentifyItem(item_id, id_kit)
+                
+            @staticmethod
+            def IdentifyItems(item_array:list[int], log=False):
+                from Py4GWCoreLib import ActionQueueManager
+                if len(item_array) == 0:
+                    ActionQueueManager().ResetQueue("IDENTIFY")
+                    return
+                
+                for item_id in item_array:
+                    ActionQueueManager().AddAction("IDENTIFY",Routines.Yield.Items._identify_item, item_id)
+                    
+                while not ActionQueueManager().IsEmpty("IDENTIFY"):
+                    yield from Routines.Yield.wait(350)
+                    
+                if log and len(item_array) > 0:
+                    ConsoleLog("IdentifyItems", f"Identified {len(item_array)} items.", Console.MessageType.Info)
+                    
+            @staticmethod
+            def DepositItems(item_array:list[int], log=False):
+                from .Inventory import Inventory
+                from Py4GWCoreLib import ActionQueueManager
+                if len(item_array) == 0:
+                    ActionQueueManager().ResetQueue("ACTION")
+                    return
+                
+                total_items, total_capacity = GLOBAL_CACHE.Inventory.GetStorageSpace()
+                free_slots = total_capacity - total_items
+                
+                if free_slots <= 0:
+                    return
+
+                for item_id in item_array:
+                    GLOBAL_CACHE.Inventory.DepositItemToStorage(item_id)
+                    
+                while not ActionQueueManager().IsEmpty("ACTION"):
+                    yield from Routines.Yield.wait(350)
+                    
+                if log and len(item_array) > 0:
+                    ConsoleLog("DepositItems", f"Deposited {len(item_array)} items.", Console.MessageType.Info)
+                    
+            @staticmethod
+            def DepositGold(gold_amount_to_leave_on_character: int, log=False):
+                from Py4GWCoreLib import ActionQueueManager
+                
+                gold_amount_on_character = GLOBAL_CACHE.Inventory.GetGoldOnCharacter()
+                gold_amount_on_storage = GLOBAL_CACHE.Inventory.GetGoldInStorage()
+                
+                max_allowed_gold = 1_000_000  # Max storage limit
+                available_space = max_allowed_gold - gold_amount_on_storage  # How much can be deposited
+
+                # Calculate how much gold we need to deposit
+                gold_to_deposit = gold_amount_on_character - gold_amount_to_leave_on_character
+
+                # Ensure we do not deposit more than available storage space
+                gold_to_deposit = min(gold_to_deposit, available_space)
+
+                # If storage is full or no gold needs to be deposited, exit
+                if available_space <= 0:
+                    if log:
+                        ConsoleLog("DepositGold", "No gold deposited, storage full.", Console.MessageType.Warning)
+                    return False
+                
+                if gold_to_deposit <= 0:
+                    if log:
+                        ConsoleLog("DepositGold", "No gold deposited, not enough excess gold.", Console.MessageType.Warning)
+                    return False
+
+                # Perform the deposit
+                GLOBAL_CACHE.Inventory.DepositGold(gold_to_deposit)
+                
+                yield from Routines.Yield.wait(350)
+                
+                if log:
+                    ConsoleLog("DepositGold", f"Deposited {gold_to_deposit} gold.", Console.MessageType.Success)
+                
+                return True
+
+            @staticmethod
+            def LootItems(item_array:list[int], log=False, progress_callback: Optional[Callable[[float], None]] = None):
+                from Py4GWCoreLib import AgentArray
+                if len(item_array) == 0:
+                    return True
+                
+                total_items = len(item_array)
+                while len (item_array) > 0:
+                    item_id = item_array.pop(0)
+                    if item_id == 0:
+                        continue
+                    
+                    free_slots_in_inventory = GLOBAL_CACHE.Inventory.GetFreeSlotCount()
+                    if free_slots_in_inventory <= 0:
+                        ConsoleLog("LootItems", "No free slots in inventory, stopping loot.", Console.MessageType.Warning)
+                        item_array.clear()
+                        ActionQueueManager().ResetAllQueues()
+                        return False
+                    
+                    if not Routines.Checks.Map.MapValid():
+                        item_array.clear()
+                        ActionQueueManager().ResetAllQueues()
+                        return False
+                    
+                    if not GLOBAL_CACHE.Agent.IsValid(item_id):
+                        continue
+                    
+                    item_x, item_y = GLOBAL_CACHE.Agent.GetXY(item_id)
+                    item_reached = yield from Routines.Yield.Movement.FollowPath([(item_x, item_y)], timeout=5000)
+                    if not item_reached:
+                        ConsoleLog("LootItems", "Failed to reach item, stopping loot.", Console.MessageType.Warning)
+                        item_array.clear()
+                        ActionQueueManager().ResetAllQueues()
+                        return False
+                    
+                    if not Routines.Checks.Map.MapValid():
+                        item_array.clear()
+                        ActionQueueManager().ResetAllQueues()
+                        return False
+                    if GLOBAL_CACHE.Agent.IsValid(item_id):
+                        yield from Routines.Yield.Player.InteractAgent(item_id)
+                        while True:
+                            yield from Routines.Yield.wait(50)
+                            live_items  = AgentArray.GetItemArray()
+                            if item_id not in live_items :
+                                break
+
+                        
+                    if progress_callback and total_items > 0:
+                        progress_callback(1 - len(item_array) / total_items)
+                if log and len(item_array) > 0:
+                    ConsoleLog("LootItems", f"Looted {len(item_array)} items.", Console.MessageType.Info)
+                    
+                return True
 
 
 #endregion

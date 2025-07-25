@@ -6,10 +6,11 @@ Py4GW_Launcher.exe
 imgui.ini
 Inject.au3
 Widgets/Config/Travel.ini
-Widgets/Config/
+Widgets/Config/*
 
-# Ignore JaborsFork
-Addons/GWToolboxdll.dll
+!Widgets/Config/textures/
+!Widgets/Config/textures/**
+
 # .tpf files, including in subfolders and ignored
 Addons/*.tpf
 Addons/**/*.tpf
@@ -175,6 +176,5 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-*.ini
 /Multiboxer
-*.ini
+.isort.cfg

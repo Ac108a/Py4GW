@@ -86,6 +86,20 @@ class Skilltarget (IntEnum):
     Minion = 14
     Spirit = 15
     Pet = 16
+    #added targets
+    
+    EnemyClustered = 22
+    EnemyAttacking = 23
+    EnemyCasting = 24
+    EnemyCastingSpell = 25
+    EnemyInjured = 26
+    EnemyConditioned = 27
+    EnemyHexed = 28
+    EnemyDegenHexed = 29
+    EnemyEnchanted = 30
+    EnemyMoving = 31
+    EnemyKnockedDown = 32
+    
     
     
    
@@ -101,6 +115,25 @@ class SkillNature (Enum):
     SelfTargeted = 8
     Resurrection = 9
     Interrupt = 10
+    CustomA = 11
+    CustomB = 12
+    CustomC = 13
+    CustomD = 14
+    CustomE = 15
+    CustomF = 16
+    CustomG = 17
+    CustomH = 18
+    CustomI = 19
+    CustomJ = 20
+    CustomK = 21
+    CustomL = 22
+    CustomM = 23
+    CustomN = 24
+    OffensiveA = 25
+    OffensiveB = 26
+    OffensiveC = 27
+    
+
 
 
 class SkillType (Enum):

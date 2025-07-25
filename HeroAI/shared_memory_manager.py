@@ -1,4 +1,5 @@
-from Py4GWCoreLib import *
+import Py4GW
+from Py4GWCoreLib import GLOBAL_CACHE
 
 from multiprocessing import shared_memory, Lock
 from ctypes import sizeof
@@ -18,11 +19,14 @@ from .types import (
     GameStruct,
 )
 
-last_hour = int(time.time() // 3600 * 3600)
+#last_hour = int(time.time() // 3600 * 3600)
 def get_base_timestamp():
+    return int((time.time() % 3600) * 1000)
+    """
     global last_hour
     now = time.time()
     return int((now - last_hour) * 1000)  # Delta from last hour in milliseconds
+    """
 
 
 class SharedMemoryManager:
@@ -449,7 +453,7 @@ class SharedMemoryManager:
         """Register new buffs or update existing ones for the agent."""
         try:
             # Process buffs
-            buff_list = Effects.GetBuffs(agent_id)
+            buff_list = GLOBAL_CACHE.Effects.GetBuffs(agent_id)
             for buff in buff_list:
                 buff_data = {
                     "PlayerID": agent_id,
@@ -460,7 +464,7 @@ class SharedMemoryManager:
                 self.set_buff(buff_data)
 
             # Process effects
-            effect_list = Effects.GetEffects(agent_id)
+            effect_list = GLOBAL_CACHE.Effects.GetEffects(agent_id)
             for effect in effect_list:
                 buff_data = {
                     "PlayerID": agent_id,

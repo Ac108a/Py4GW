@@ -1,4 +1,9 @@
-from Py4GWCoreLib import *
+from Py4GWCoreLib import ThrottledTimer
+from Py4GWCoreLib import Routines
+from Py4GWCoreLib import GLOBAL_CACHE
+from Py4GWCoreLib import TitleID
+
+
 module_name = "Set title on map load"
 
 class config:
@@ -28,7 +33,7 @@ deldrimor_map_names = {
 }
 
 norn_map_names = {
-    "Attack of the Nornbear", "Bjora Marches", "Blood Washes Blood",
+    "Attack of the Nornbear", "Bjora Marches",
     "Boreal Station", "Cold as Ice", "Curse of the Nornbear",
     "Drakkar Lake", "Eye of the North", "Gunnar's Hold", "Ice Cliff Chasms",
     "Jaga Moraine", "Mano a Norn-o", "Norrhart Domains", "Olafstead",
@@ -38,6 +43,7 @@ norn_map_names = {
 
 vanguard_map_names = {
     "Against the Charr", "Ascalon City", "Assault on the Stronghold",
+     "Blood Washes Blood",
     "Cathedral of Flames (Level 1)", "Cathedral of Flames (Level 2)",
     "Cathedral of Flames (Level 3)", "Dalada Uplands", "Diessa Lowlands",
     "Doomlore Shrine", "Dragon's Gullet", "Eastern Frontier",
@@ -77,29 +83,30 @@ def main():
     game_throttle_timer.Reset()
     
     is_map_valid = Routines.Checks.Map.MapValid()
-    is_explorable = Map.IsExplorable()
+    is_explorable = GLOBAL_CACHE.Map.IsExplorable()
     
     if not is_map_valid:
         widget_config.title_applied = False
         return
     
-    map_name = Map.GetMapName()
+    if not is_explorable:
+        widget_config.title_applied = False
+        return
+    
+    map_name = GLOBAL_CACHE.Map.GetMapName()
 
     if not widget_config.title_applied:
         if map_name in asuran_map_names:
-            ActionQueueManager().AddAction("ACTION", Player.SetActiveTitle, TitleID.Asuran.value)
+            GLOBAL_CACHE.Player.SetActiveTitle(TitleID.Asuran.value)
         elif map_name in deldrimor_map_names:
-            ActionQueueManager().AddAction("ACTION", Player.SetActiveTitle, TitleID.Deldrimor.value)
+            GLOBAL_CACHE.Player.SetActiveTitle(TitleID.Deldrimor.value)
         elif map_name in norn_map_names:
-            ActionQueueManager().AddAction("ACTION", Player.SetActiveTitle, TitleID.Norn.value)
+            GLOBAL_CACHE.Player.SetActiveTitle(TitleID.Norn.value)
         elif map_name in vanguard_map_names:
-            ActionQueueManager().AddAction("ACTION", Player.SetActiveTitle, TitleID.Vanguard.value)
+            GLOBAL_CACHE.Player.SetActiveTitle(TitleID.Vanguard.value)
         elif map_name in lightbringer_map_names:
-            ActionQueueManager().AddAction("ACTION", Player.SetActiveTitle, TitleID.Lightbringer.value)
+            GLOBAL_CACHE.Player.SetActiveTitle(TitleID.Lightbringer.value)
         widget_config.title_applied = True
-        
-    if is_explorable:
-        ActionQueueManager().ProcessQueue("ACTION")
 
 if __name__ == "__main__":
     main()

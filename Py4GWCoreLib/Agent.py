@@ -68,6 +68,36 @@ class Agent:
         return Agent.agent_instance(agent_id)
     
     @staticmethod
+    def GetAgentEffects(agent_id):
+        """
+        Purpose: Retrieve the effects of an agent.
+        Args:
+            agent_id (int): The ID of the agent.
+        Returns: int
+        """
+        return Agent.agent_instance(agent_id).living_agent.effects
+    
+    @staticmethod
+    def GetTypeMap(agent_id):
+        """
+        Purpose: Retrieve the type map of an agent.
+        Args:
+            agent_id (int): The ID of the agent.
+        Returns: int
+        """
+        return Agent.agent_instance(agent_id).living_agent.type_map
+    
+    @staticmethod
+    def GetModelState(agent_id):
+        """
+        Purpose: Retrieve the model state of an agent.
+        Args:
+            agent_id (int): The ID of the agent.
+        Returns: int
+        """
+        return Agent.agent_instance(agent_id).living_agent.model_state
+    
+    @staticmethod
     def GetAgentIDByName(name):
         """
         Purpose: Retrieve the first agent by matching a partial mask of its name.
@@ -397,6 +427,31 @@ class Agent:
 
 
     @staticmethod
+    def GetProfessionsTexturePaths(agent_id):
+        """
+        Purpose: Retrieve the texture paths of the player's primary and secondary professions.
+        Args: agent_id (int): The ID of the agent.
+        Returns: tuple
+        """
+        agent_instance = Agent.agent_instance(agent_id)
+        primary = agent_instance.living_agent.profession.ToInt()
+        primary_name = agent_instance.living_agent.profession.GetName()
+        secondary = agent_instance.living_agent.secondary_profession.ToInt()
+        secondary_name = agent_instance.living_agent.secondary_profession.GetName()
+        
+        if primary == 0:
+            primary_texture = ""
+        else:
+            primary_texture = f"Textures\\Profession_Icons\\[{primary}] - {primary_name}.png"
+        if secondary == 0:
+            secondary_texture = ""
+        else:
+            secondary_texture = f"Textures\\Profession_Icons\\[{secondary}] - {secondary_name}.png"
+            
+        return primary_texture, secondary_texture
+        
+
+    @staticmethod
     def GetLevel(agent_id):
         """
         Purpose: Retrieve the level of the agent.
@@ -431,6 +486,16 @@ class Agent:
         Returns: float
         """
         return Agent.agent_instance(agent_id).living_agent.energy_regen
+    
+    @staticmethod
+    def GetEnergyPips(agent_id):
+        """
+        Purpose: Retrieve the energy pips of the agent, only works for players and heroes.
+        Args: agent_id (int): The ID of the agent.
+        Returns: int
+        """
+        pips = 3.0 / 0.99 * Agent.agent_instance(agent_id).living_agent.energy_regen * Agent.agent_instance(agent_id).living_agent.max_energy
+        return int(pips) if pips > 0 else 0
 
     @staticmethod
     def GetHealth(agent_id):
@@ -461,73 +526,74 @@ class Agent:
 
     @staticmethod
     def IsMoving(agent_id):
-        """Purpose: Check if the agent is moving."""
-        return Agent.agent_instance(agent_id).living_agent.is_moving
+        model_state = Agent.GetModelState(agent_id)
+        return (model_state == 12) or (model_state == 76) or (model_state == 204)
 
     @staticmethod
     def IsKnockedDown(agent_id):
-        """Check if the agent is knocked down."""
-        return Agent.agent_instance(agent_id).living_agent.is_knocked_down
+        model_state = Agent.GetModelState(agent_id)
+        return model_state == 1104
 
     @staticmethod
     def IsBleeding(agent_id):
-        """Check if the agent is bleeding."""
-        return Agent.agent_instance(agent_id).living_agent.is_bleeding
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0001) != 0
 
     @staticmethod
     def IsCrippled(agent_id):
-        """Check if the agent is crippled."""
-        return Agent.agent_instance(agent_id).living_agent.is_crippled
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x000A) != 0xA
 
     @staticmethod
     def IsDeepWounded(agent_id):
-        """Check if the agent is deep wounded."""
-        return Agent.agent_instance(agent_id).living_agent.is_deep_wounded
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0020) != 0
 
     @staticmethod
     def IsPoisoned(agent_id):
-        """Check if the agent is poisoned."""
-        return Agent.agent_instance(agent_id).living_agent.is_poisoned
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0040) != 0
 
     @staticmethod
     def IsConditioned(agent_id):
-        """Check if the agent is conditioned."""
-        return Agent.agent_instance(agent_id).living_agent.is_conditioned
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0002) != 0
 
     @staticmethod
     def IsEnchanted(agent_id):
-        """Check if the agent is enchanted."""
-        return Agent.agent_instance(agent_id).living_agent.is_enchanted
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0080) != 0
 
     @staticmethod
     def IsHexed(agent_id):
-        """Check if the agent is hexed."""
-        return Agent.agent_instance(agent_id).living_agent.is_hexed
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0800) != 0
 
     @staticmethod
     def IsDegenHexed(agent_id):
-        """Check if the agent is degen hexed."""
-        return Agent.agent_instance(agent_id).living_agent.is_degen_hexed
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x0400) != 0
 
     @staticmethod
     def IsDead(agent_id):
         """Check if the agent is dead."""
-        return Agent.agent_instance(agent_id).living_agent.is_dead
+        effects = Agent.GetAgentEffects(agent_id)
+        return ((effects & 0x0010) != 0) or Agent.IsDeadByTypeMap(agent_id)
 
     @staticmethod
     def IsAlive(agent_id):
-        """Check if the agent is alive."""
-        return not Agent.IsDead(agent_id)
+        health = Agent.GetHealth(agent_id)
+        return not Agent.IsDead(agent_id) and health > 0.0
 
     @staticmethod
     def IsWeaponSpelled(agent_id):
-        """Check if the agent's weapon is spelled."""
-        return Agent.agent_instance(agent_id).living_agent.is_weapon_spelled
+        effects = Agent.GetAgentEffects(agent_id)
+        return (effects & 0x8000) != 0
 
     @staticmethod
     def IsInCombatStance(agent_id):
-        """Check if the agent is in combat stance."""
-        return Agent.agent_instance(agent_id).living_agent.in_combat_stance
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x000001) != 0
 
     @staticmethod
     def IsAggressive(agent_id):
@@ -539,23 +605,23 @@ class Agent:
 
     @staticmethod
     def IsAttacking(agent_id):
-        """Check if the agent is attacking."""
-        return Agent.agent_instance(agent_id).living_agent.is_attacking
+        model_state = Agent.GetModelState(agent_id)
+        return (model_state == 96) or (model_state == 1088) or (model_state == 1120)
 
     @staticmethod
     def IsCasting(agent_id):
-        """Check if the agent is casting."""
-        return Agent.agent_instance(agent_id).living_agent.is_casting
+        model_state = Agent.GetModelState(agent_id)
+        return (model_state == 65) or (model_state == 581)
 
     @staticmethod
     def IsIdle(agent_id):
-        """Check if the agent is idle."""
-        return Agent.agent_instance(agent_id).living_agent.is_idle
+        model_state = Agent.GetModelState(agent_id)
+        return (model_state == 68) or (model_state == 64) or (model_state == 100)
 
     @staticmethod
     def HasBossGlow(agent_id):
-        """Check if the agent has a boss glow."""
-        return Agent.agent_instance(agent_id).living_agent.has_boss_glow
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x000400) != 0
 
 
     @staticmethod
@@ -614,6 +680,8 @@ class Agent:
     @staticmethod
     def GetCastingSkill(agent_id):
         """ Purpose: Retrieve the casting skill of the agent."""
+        if not Agent.agent_instance(agent_id).living_agent.is_casting:
+            return 0    
         return Agent.agent_instance(agent_id).living_agent.casting_skill_id
 
     @staticmethod
@@ -628,48 +696,48 @@ class Agent:
 
     @staticmethod
     def IsPlayer(agent_id):
-        """Check if the agent is a player."""
-        return Agent.agent_instance(agent_id).living_agent.is_player
+        login_number = Agent.GetLoginNumber(agent_id)
+        return login_number  != 0
 
     @staticmethod
     def IsNPC(agent_id):
-        """Check if the agent is an NPC."""
-        return Agent.agent_instance(agent_id).living_agent.is_npc
+        login_number = Agent.GetLoginNumber(agent_id)
+        return login_number  == 0
 
     @staticmethod
     def HasQuest(agent_id):
-        """Check if the agent has a quest."""
-        return Agent.agent_instance(agent_id).living_agent.has_quest
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x000002) != 0
 
     @staticmethod
     def IsDeadByTypeMap(agent_id):
-        """Check if the agent is dead by type map."""
-        return Agent.agent_instance(agent_id).living_agent.is_dead_by_typemap
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x000008) != 0
 
     @staticmethod
     def IsFemale(agent_id):
-        """Check if the agent is female."""
-        return Agent.agent_instance(agent_id).living_agent.is_female
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x000200) != 0
 
     @staticmethod
     def IsHidingCape(agent_id):
-        """Check if the agent is hiding the cape."""
-        return Agent.agent_instance(agent_id).living_agent.is_hiding_cape
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x001000) != 0
 
     @staticmethod
     def CanBeViewedInPartyWindow(agent_id):
-        """Check if the agent can be viewed in the party window."""
-        return Agent.agent_instance(agent_id).living_agent.can_be_viewed_in_party_window
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x20000) != 0
 
     @staticmethod
     def IsSpawned(agent_id):
-        """Check if the agent is spawned."""
-        return Agent.agent_instance(agent_id).living_agent.is_spawned
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x040000) != 0
 
     @staticmethod
     def IsBeingObserved(agent_id):
-        """Check if the agent is being observed."""
-        return Agent.agent_instance(agent_id).living_agent.is_being_observed
+        type_map = Agent.GetTypeMap(agent_id)
+        return (type_map & 0x400000) != 0
 
     @staticmethod
     def GetOvercast(agent_id):
@@ -683,11 +751,14 @@ class Agent:
     
     @staticmethod
     def GetItemAgentOwnerID(agent_id):
-        item_owner_cache = ItemOwnerCache()
+        #item_owner_cache = ItemOwnerCache()
         """Retrieve the owner ID of the item agent."""
         item_data =  Agent.GetItemAgent(agent_id)    
+        if item_data is None:
+            return 999
         current_owner_id = item_data.owner_id   
-        return item_owner_cache.check_and_cache(item_data.item_id, current_owner_id)
+        return current_owner_id
+        #return item_owner_cache.check_and_cache(item_data.item_id, current_owner_id)
         
     @staticmethod
     def GetGadgetAgent(agent_id):
@@ -701,6 +772,48 @@ class Agent:
         return gadget_agent.gadget_id
 
 
+class AgentName:
+    """
+    Purpose: Requests and Retrieve the name of an agent.
+    """
+    def __init__(self, agent_id, refresh_rate=1000):
+        from .Py4GWcorelib import ThrottledTimer
+        self.agent_id = agent_id
+        self.name = None
+        self.refresh_timer = ThrottledTimer(refresh_rate)
+        self.requested = False
+        self.name_ready = False
+
+    def request_name(self):
+        """Request the agent's name if not already requested."""
+        if not self.requested:
+            Agent.RequestName(self.agent_id)
+            self.requested = True
+
+    def is_name_ready(self):
+        """Check if the name is ready."""
+        return Agent.IsNameReady(self.agent_id)
+
+    def get_name(self):
+        """
+        Get the agent's name.
+        """
+        
+        if not self.name_ready or self.refresh_timer.IsExpired():
+            self.refresh_timer.Reset()
+            if not self.requested:
+                self.request_name()
+                self.name_ready = False
+                return self.name
+                
+                
+        if not self.name_ready and self.is_name_ready():
+            self.name = Agent.GetName(self.agent_id)
+            self.name_ready = True
+            self.requested = False
+                    
+        return self.name
+            
 
 
 

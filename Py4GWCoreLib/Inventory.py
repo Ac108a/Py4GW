@@ -181,7 +181,7 @@ class Inventory:
 
         salvage_kits = ItemArray.Filter.ByCondition(item_array, Item.Usage.IsSalvageKit)
         if use_lesser:
-            salvage_kits = ItemArray.Filter.ByCondition(salvage_kits, lambda item_id: Item.Usage.IsLesserKit)
+            salvage_kits = ItemArray.Filter.ByCondition(salvage_kits, lambda item_id: Item.Usage.IsLesserKit(item_id))
             
         if not salvage_kits:
             return 0  # Return 0 if no salvage kit is found
@@ -296,12 +296,10 @@ class Inventory:
         Returns:
             bool: True if click was performed, False otherwise.
         """
-        from .Map import Map
-        from .Party import Party
         from .UIManager import UIManager
 
         parent_hash = 140452905
-        yes_button_offsets = [6,98,6]
+        yes_button_offsets = [6,100,6]
         
         salvage_material_window = UIManager.GetChildFrameID(parent_hash, yes_button_offsets)
         UIManager.FrameClick(salvage_material_window)

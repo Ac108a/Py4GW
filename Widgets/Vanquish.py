@@ -1,4 +1,10 @@
-from Py4GWCoreLib import *
+from Py4GWCoreLib import IniHandler
+from Py4GWCoreLib import ImGui
+from Py4GWCoreLib import PyImGui
+from Py4GWCoreLib import Timer
+from Py4GWCoreLib import Overlay
+from Py4GWCoreLib import GLOBAL_CACHE
+from Py4GWCoreLib import Color
 import os
 module_name = "Vanquish Monitor"
 
@@ -14,13 +20,12 @@ class Config:
     def __init__(self):
         self.x = ini_handler.read_int(module_name, "x", 100)
         self.y = ini_handler.read_int(module_name, "y", 200)
-        self.scale = ini_handler.read_float(module_name, "scale", 4.0)
-        self.color = (
-            ini_handler.read_float(module_name, "color_r", 1.0),
-            ini_handler.read_float(module_name, "color_g", 1.0),
-            ini_handler.read_float(module_name, "color_b", 1.0),
-            ini_handler.read_float(module_name, "color_a", 1.0),
-        )
+        self.font_size = ini_handler.read_int(module_name, "font_size", 20)
+        self.color = Color(
+                    ini_handler.read_int(module_name, "color_r", 255),
+                    ini_handler.read_int(module_name, "color_g", 255),
+                    ini_handler.read_int(module_name, "color_b", 255),
+                    ini_handler.read_int(module_name, "color_a", 255))
         self.string = "000/000"
         self.sync_interval = sync_interval
         
@@ -28,11 +33,11 @@ class Config:
         """Save the current configuration to the INI file."""
         ini_handler.write_key(module_name, "x", str(self.x))
         ini_handler.write_key(module_name, "y", str(self.y))
-        ini_handler.write_key(module_name, "scale", str(self.scale))
-        ini_handler.write_key(module_name, "color_r", str(self.color[0]))
-        ini_handler.write_key(module_name, "color_g", str(self.color[1]))
-        ini_handler.write_key(module_name, "color_b", str(self.color[2]))
-        ini_handler.write_key(module_name, "color_a", str(self.color[3]))
+        ini_handler.write_key(module_name, "font_size", str(self.font_size))
+        ini_handler.write_key(module_name, "color_r", str(self.color.get_r()))
+        ini_handler.write_key(module_name, "color_g", str(self.color.get_g()))
+        ini_handler.write_key(module_name, "color_b", str(self.color.get_b()))
+        ini_handler.write_key(module_name, "color_a", str(self.color.get_a()))
         
 widget_config = Config()
 window_module = ImGui.WindowModule(
@@ -84,8 +89,14 @@ def configure():
         widget_config.x = PyImGui.slider_int("X", widget_config.x, 0, screen_width)
         widget_config.y = PyImGui.slider_int("Y", widget_config.y, 0, screen_height)
 
-        widget_config.scale = PyImGui.slider_float("Scale", widget_config.scale, 1.0, 10.0)
-        widget_config.color = PyImGui.color_edit4("Color", widget_config.color)
+        widget_config.font_size = PyImGui.slider_int("Font Size", widget_config.font_size, 1, 250)
+        color = PyImGui.color_edit4("Color", widget_config.color.to_tuple_normalized())
+        widget_config.color = Color(
+            int(color[0] * 255),
+            int(color[1] * 255),
+            int(color[2] * 255),
+            int(color[3] * 255)
+        )
 
         widget_config.save()
         end_pos = PyImGui.get_window_pos()
@@ -102,12 +113,16 @@ def DrawWindow():
     global widget_config, window_module
     global killed, total
     
-    widget_config.string = f"{killed:03}/{total:03}"
+    widget_config.string = f"{total:03}/{killed:03}"
 
     PyImGui.set_next_window_pos(widget_config.x, widget_config.y)
 
     if PyImGui.begin(window_module.window_name, window_module.window_flags):
-        PyImGui.text_scaled(widget_config.string,widget_config.color,widget_config.scale)
+        ImGui.push_font("Regular", widget_config.font_size)
+        PyImGui.push_style_color(PyImGui.ImGuiCol.Text,widget_config.color.to_tuple_normalized())
+        PyImGui.text(widget_config.string)
+        PyImGui.pop_style_color(1)
+        ImGui.pop_font()
     PyImGui.end()
   
   
@@ -116,11 +131,11 @@ def main():
     global game_throttle_time, widget_config, killed, total
     
     if game_throttle_timer.HasElapsed(game_throttle_time):
-        is_map_ready = Map.IsMapReady()
-        is_party_loaded = Party.IsPartyLoaded()
-        is_explorable = Map.IsExplorable()
-        is_vanquishable = Map.IsVanquishable()
-        is_hard_mode = Party.IsHardMode()
+        is_map_ready = GLOBAL_CACHE.Map.IsMapReady()
+        is_party_loaded = GLOBAL_CACHE.Party.IsPartyLoaded()
+        is_explorable = GLOBAL_CACHE.Map.IsExplorable()
+        is_vanquishable = GLOBAL_CACHE.Map.IsVanquishable()
+        is_hard_mode = GLOBAL_CACHE.Party.IsHardMode()
         if (
             is_map_ready and
             is_party_loaded and
@@ -128,8 +143,8 @@ def main():
             is_vanquishable and
             is_hard_mode
         ):
-            killed = Map.GetFoesKilled()
-            total = Map.GetFoesToKill()
+            killed = GLOBAL_CACHE.Map.GetFoesKilled()
+            total = GLOBAL_CACHE.Map.GetFoesToKill()
             
         game_throttle_timer.Start()
          
