@@ -3,7 +3,7 @@ from Py4GWCoreLib import *
 from Py4GWCoreLib.enums import ModelID
 import os
 
-show_item_selector = False
+show_item_selector = True
 toggle_state = {
     "Alcohol": {},
     "Sweets": {},
@@ -81,11 +81,11 @@ def init_toggle_state():
 def draw_item_selector_window():
     global show_item_selector
     
-    expanded, show_item_selector = PyImGui.begin_with_close("TitleHelper Options", show_item_selector, PyImGui.WindowFlags.AlwaysAutoResize)
+    #expanded, show_item_selector = PyImGui.begin_with_close("TitleHelper Options", show_item_selector, PyImGui.WindowFlags.AlwaysAutoResize)
 
-    if not show_item_selector:
-        PyImGui.end()
-        return
+    #if not show_item_selector:
+    #    PyImGui.end()
+    #    return
     
     for group_name, group_items in [
         ("Alcohol", alcohol_items),
@@ -115,7 +115,7 @@ def draw_item_selector_window():
                 base_path = os.path.abspath(os.path.join(os.getcwd()))
                 texture_name = f"[{model_id.value}] - {model_id.name.replace('_', ' ')}.png"
                 texture_path = os.path.join(base_path, "Textures", "Item Models", texture_name)
-                #Py4GW.Console.Log("ItemSelector", f"Loading texture: {texture_path}")
+                #print("ItemSelector", f"Loading texture: {texture_path}")
 
                 PyImGui.push_id(f"{group_name}_{row_label}_{i}")
                 selected = toggle_state[group_name][model_id]
@@ -134,3 +134,6 @@ def draw_item_selector_window():
     PyImGui.end()
 
 init_toggle_state()
+
+def main():
+    draw_item_selector_window()

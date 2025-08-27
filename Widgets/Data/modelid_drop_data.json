@@ -247,6 +247,7 @@
   {"name": "Juvenile Termite Leg", "model_id": "ModelID.Juvenile_Termite_Leg", "group": "Trophies", "subgroup": "J", "drop_info": "Dropped by data to be added"},
   {"name": "Kappa Hatchling Shell", "model_id": "ModelID.Kappa_Hatchling_Shell", "group": "Trophies", "subgroup": "K", "drop_info": "Dropped by data to be added"},
   {"name": "Kappa Shell", "model_id": "ModelID.Kappa_Shell", "group": "Trophies", "subgroup": "K", "drop_info": "Dropped by data to be added"},
+  {"name": "Keen Oni Claw", "model_id": "ModelID.Keen_Oni_Claw", "group": "Trophies", "subgroup": "K", "drop_info": "Dropped by data to be added"},
   {"name": "Keen Oni Talon", "model_id": "ModelID.Keen_Oni_Talon", "group": "Trophies", "subgroup": "K", "drop_info": "Dropped by data to be added"},
   {"name": "Kirin Horn", "model_id": "ModelID.Kirin_Horn", "group": "Trophies", "subgroup": "K", "drop_info": "Dropped by data to be added"},
   {"name": "Kournan Pendant", "model_id": "ModelID.Kournan_Pendant", "group": "Trophies", "subgroup": "K", "drop_info": "Dropped by data to be added"},

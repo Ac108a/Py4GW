@@ -74,31 +74,6 @@ class Yield:
         def Resign():
             GLOBAL_CACHE.Player.SendChatCommand("resign")
             yield from Yield.wait(250)
-            
-        @staticmethod
-        def SendChatMessage(channel:str, message:str, log=False):
-            """
-            Purpose: Send a chat message to the specified channel.
-            Args:
-                channel (str): The channel to send the message to.
-                message (str): The message to send.
-                log (bool) Optional: Whether to log the action. Default is True.
-            Returns: None
-            """
-            
-            GLOBAL_CACHE.Player.SendChat(channel, message)
-            yield from Yield.wait(300)
-            
-        @staticmethod
-        def PrintMessageToConsole(source:str, message: str):
-            """
-            Purpose: Print a message to the console.
-            Args:
-                message (str): The message to print.
-            Returns: None
-            """
-            ConsoleLog(source, message, Console.MessageType.Info)
-            yield from Yield.wait(100)
 
 #region Movement
     class Movement:
@@ -139,16 +114,12 @@ class Yield:
                         ActionQueueManager().ResetAllQueues()
                         return False
                     
-                    if GLOBAL_CACHE.Agent.IsCasting(GLOBAL_CACHE.Player.GetAgentID()):
-                        yield from Yield.wait(750)
-                        continue
-                    
                     if custom_pause_fn:
                         while custom_pause_fn():
                             if log:
                                 ConsoleLog("FollowPath", "Custom pause condition active, pausing movement...", Console.MessageType.Debug)
                             start_time = Utils.GetBaseTimestamp()  # Reset timeout timer
-                            yield from Yield.wait(750)
+                            yield from Yield.wait(500)
                     
 
                     current_time = Utils.GetBaseTimestamp()
@@ -220,17 +191,6 @@ class Yield:
             if log:
                 ConsoleLog("CastSkillID", f"Cast {GLOBAL_CACHE.Skill.GetName(skill_id)}, slot: {GLOBAL_CACHE.SkillBar.GetSlotBySkillID(skill_id)}", Console.MessageType.Info)
             return True
-        
-        @staticmethod
-        def IsSkillIdUsable(skill_id: int):
-            from .Checks import Checks
-
-            if not GLOBAL_CACHE.Map.IsMapReady():
-                return False
-            player_agent_id = GLOBAL_CACHE.Player.GetAgentID()
-            enough_energy = Checks.Skills.HasEnoughEnergy(player_agent_id,skill_id)
-            skill_ready = Checks.Skills.IsSkillIDReady(skill_id)
-            return enough_energy and skill_ready
 
         @staticmethod
         def CastSkillSlot(slot:int,extra_condition=True, aftercast_delay=0, log=False):
@@ -608,7 +568,47 @@ class Yield:
             # 4) Small settle
             yield from Yield.wait(500)
             return True
+        
+        @staticmethod
+        def InteractWithItemXY(x:float, y:float, timeout_ms: int = 5000, tolerance: float = 200.0):
+                    
+            from ..Py4GWcorelib import ConsoleLog, Utils
+            yield from Yield.Agents.TargetNearestItem(distance=1000)
+            target_id = GLOBAL_CACHE.Player.GetTargetID()
+            if not target_id:
+                ConsoleLog("InteractWithItemXY", "No target after targeting.")
+                return False
+            
+            # 2) Interact once — the game will auto-move to the target
+            yield from Yield.Player.InteractTarget()
 
+            # 3) Wait until we’re inside the threshold (or timeout), re-issuing every 1000 ms
+            elapsed = 0
+            since_reissue = 0
+            reissue_interval = 1000
+            step = 100  # ms
+            while elapsed < timeout_ms:
+                px, py = GLOBAL_CACHE.Player.GetXY()
+                tx, ty = GLOBAL_CACHE.Agent.GetXY(target_id)
+                if Utils.Distance((px, py), (tx, ty)) <= tolerance:
+                    break
+
+                if since_reissue >= reissue_interval:
+                    yield from Yield.Agents.TargetNearestItem(1000)
+                    yield from Yield.Player.InteractTarget()
+                    since_reissue = 0
+
+                yield from Yield.wait(step)
+                elapsed += step
+                since_reissue += step
+
+                if elapsed >= timeout_ms:
+                    ConsoleLog("InteractWithItemXY", "TIMEOUT waiting to reach target range.")
+                    return False
+
+                # 4) Small settle
+                yield from Yield.wait(500)
+                return True
 
 #region Merchant      
     class Merchant:
@@ -684,63 +684,6 @@ class Yield:
             
             if log:
                 ConsoleLog("BuySalvageKits", f"Bought {kits_to_buy} Salvage Kits.", Console.MessageType.Info)
-                
-        @staticmethod
-        def BuyMaterial(model_id: int):
-            MODULE_NAME = "Inventory + Buy Material"
-
-            def _is_material_trader():
-                merchant_models = [
-                    GLOBAL_CACHE.Item.GetModelID(item_id)
-                    for item_id in GLOBAL_CACHE.Trading.Trader.GetOfferedItems()
-                ]
-                return ModelID.Wood_Plank.value in merchant_models
-
-            def _get_minimum_quantity():
-                return 10 if _is_material_trader() else 1
-
-            required_quantity = _get_minimum_quantity()
-            merchant_item_list = GLOBAL_CACHE.Trading.Trader.GetOfferedItems()
-
-            # resolve merchant item ID from model_id
-            item_id = None
-            for candidate in merchant_item_list:
-                if GLOBAL_CACHE.Item.GetModelID(candidate) == model_id:
-                    item_id = candidate
-                    break
-
-            if item_id is None:
-                ConsoleLog(MODULE_NAME, f"Model {model_id} not sold here.", Console.MessageType.Warning)
-                return False
-
-            # Request a single quote
-            GLOBAL_CACHE.Trading.Trader.RequestQuote(item_id)
-
-            while True:
-                yield from Yield.wait(50)
-                cost = GLOBAL_CACHE.Trading.Trader.GetQuotedValue()
-                if cost >= 0:
-                    break
-
-            if cost == 0:
-                ConsoleLog(MODULE_NAME, f"Item {item_id} has no price.", Console.MessageType.Warning)
-                return False
-
-            # Perform a single buy transaction
-            GLOBAL_CACHE.Trading.Trader.BuyItem(item_id, cost)
-
-            while True:
-                yield from Yield.wait(50)
-                if GLOBAL_CACHE.Trading.IsTransactionComplete():
-                    break
-
-            ConsoleLog(
-                MODULE_NAME,
-                f"Bought {required_quantity} units of model {model_id} for {cost} gold.",
-                Console.MessageType.Success
-            )
-            return True
-
 
 #region Items
     class Items:
@@ -1120,8 +1063,8 @@ class Yield:
         
         @staticmethod
         def Upkeep_EssenceOfCelerity():
-            yield from Yield.Upkeepers._upkeep_consumable(ModelID.Essence_Of_Celerity, "Essence_Of_Celerity_skill")
-            
+            yield from Yield.Upkeepers._upkeep_consumable(ModelID.Essence_Of_Celerity, "Essence_Of_Celerity_item_effect")
+        
         @staticmethod
         def Upkeep_GrailOfMight():
             yield from Yield.Upkeepers._upkeep_consumable(ModelID.Grail_Of_Might, "Grail_of_Might_item_effect")
@@ -1208,7 +1151,7 @@ class Yield:
                     break
 
                 GLOBAL_CACHE.Inventory.UseItem(item_id)
-                yield from Yield.wait(750)
+                yield from Yield.wait(500)
                 
             yield from Yield.wait(500)
 

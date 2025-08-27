@@ -47,7 +47,6 @@ _2_grendichcourthouse_to_flametemplecorridor_segments = [
             (-7872, -7263),
             (-7452, -5251),
             (-6756, -3350),
-            (-6296, -2653),
         ],
     },
     {

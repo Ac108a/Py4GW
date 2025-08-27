@@ -81,6 +81,8 @@ RUN_NAME_MAP = {
         "_11_ventarisrefuge_to_auroragladeoutpost": "11 - Ventari's Refuge -> Aurora Glade",
         "_12_auroragladeoutpost_to_maguumastade": "12 - Aurora Glade -> Maguuma Stade",
         "_13_maguumastade_to_hengeofdenravi": "13 - Maguuma Stade -> Henge of Denravi",
+        "_14_templeoftheages_to_fishermenshaven": "14 - Temple Of The Ages -> Fishermen's Haven",
+        "_15_fishermenshaven_to_sanctumcayoutpost": "15 - Fishermen's Haven -> Sanctum Cay Outpost",
     },
     "NF - Istan island": {
         "_1_kamadanjewelofistan_to_sunspeargreathall": "1 - Kamadan -> Sunspear Greathall",
@@ -133,6 +135,9 @@ RUN_NAME_MAP = {
         "_5_doomloreshrine_to_sacnothvalley": "5 - Visit the burning forest in Sacnoth Valley",
         "_6_ratasum_to_rivenearth": "6 - Visit the G.O.L.E.M site",
         "_8_vloxsfalls_to_arborbay": "8 - Visit Ventari's sanctuary.",
+    },
+    "Missions - Desert": {
+        "_1_elonareachoutpost_to_elonareachoutpost": "1 - Elona Reach",
     },
 }
 
@@ -434,11 +439,11 @@ def draw_ui():
             PyImGui.end()
 
         # --- Show Next Path Point (Debug) ---
-        global last_valid_next_point
-        next_point = runner_fsm.helpers.get_next_path_point()
-        if next_point:
-            x, y = next_point
-            last_valid_next_point = next_point 
+        #global last_valid_next_point
+        #next_point = runner_fsm.helpers.get_next_path_point()
+        #if next_point:
+        #    x, y = next_point
+        #    last_valid_next_point = next_point 
             #PyImGui.text(f"Next Path Point: X={x:.2f}, Y={y:.2f}")
         #else:
             #PyImGui.text("Next Path Point: None (no current map data)")
@@ -632,8 +637,13 @@ def render_path_ui():
 
                     f.write("# 2) Outpost exit path\n")
                     f.write(f"{base_var}_outpost_path = [\n")
-                    for x, y in state["outpost"]["path"]:
-                        f.write(f"    ({round(x)}, {round(y)}),\n")
+                    for entry in state["outpost"]["path"]:
+                        if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[1], str):
+                            (x, y), comment = entry
+                            f.write(f"    ({round(x)}, {round(y)}),  {comment}\n")
+                        else:
+                            x, y = entry
+                            f.write(f"    ({round(x)}, {round(y)}),\n")
                     f.write("]\n\n")
 
                     f.write("# 3) Segments\n")
@@ -642,8 +652,13 @@ def render_path_ui():
                         f.write("    {\n")
                         f.write(f'        "map_id": {seg["id"]},\n')
                         f.write('        "path": [\n')
-                        for x, y in seg["path"]:
-                            f.write(f"            ({round(x)}, {round(y)}),\n")
+                        for entry in seg["path"]:
+                            if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[1], str):
+                                (x, y), comment = entry
+                                f.write(f"            ({round(x)}, {round(y)}),  {comment}\n")
+                            else:
+                                x, y = entry
+                                f.write(f"            ({round(x)}, {round(y)}),\n")
                         f.write("        ],\n")
                         f.write("    },\n")
                     f.write("    {\n")
@@ -662,6 +677,11 @@ def render_path_ui():
     PyImGui.text(f"Player Pos: ({int(x)}, {int(y)})")
     if PyImGui.button("Copy position"):
         PyImGui.set_clipboard_text(f"{int(x)}, {int(y)})")
+
+    if PyImGui.button("SpecialAction"):
+        if (x, y) != (0, 0):
+            state["current_path"].append(((x, y), "#specialaction"))
+            ConsoleLog("Logger", f"Special action position logged at: ({x}, {y})", Console.MessageType.Info)
 
     # Facing vector from heading
     heading = GLOBAL_CACHE.Agent.GetRotationAngle(Player.GetAgentID())
@@ -686,28 +706,19 @@ def log_path():
     current_map_id = get_map_id()
 
     if (x, y) == (0, 0):
-        if not state["waiting_for_new_map"]:
-            if state["last_pos"] is not None and state.get("prev_last_pos") is not None:
-                x1, y1 = state["prev_last_pos"]
-                x2, y2 = state["last_pos"]
-                dx, dy = x2 - x1, y2 - y1
-                length = (dx ** 2 + dy ** 2) ** 0.5
-                if length != 0:
-                    scale = 1000 / length
-                    extra_point = (round(x2 + dx * scale), round(y2 + dy * scale))
-                    state["current_path"].append(extra_point)
-                    ConsoleLog("Logger", f"Added portal push step at {extra_point}", Console.MessageType.Info)
-            state["waiting_for_new_map"] = True
-        return  
+        state["waiting_for_new_map"] = True
+        return
 
     if Map.IsMapLoading():
         return
 
-    if current_map_id != state["last_map_id"]:
+    # Accept same map ID for both outpost and explorable
+    if current_map_id != state["last_map_id"] or state["waiting_for_new_map"]:
         new_name = get_map_name().replace(" ", "")
-        if not new_name or current_map_id == 0 or (x == 0 and y == 0):
+        if not new_name or current_map_id == 0:
+            return
 
-            ConsoleLog("Logger", f"Detected map change: {state['last_map_id']} -> {current_map_id}", Console.MessageType.Info)
+        ConsoleLog("Logger", f"Detected map change or reset: {state['last_map_id']} -> {current_map_id}", Console.MessageType.Info)
 
         if state["mode"] == "outpost":
             state["outpost"]["path"] = state["current_path"][:]
@@ -718,6 +729,7 @@ def log_path():
                 "path": state["current_path"][:],
             })
 
+        # Reset segment tracking
         state["current_path"] = []
         state["last_pos"] = None
         state["last_map_id"] = current_map_id
@@ -734,6 +746,7 @@ def log_path():
             state["prev_last_pos"] = state.get("last_pos")
             state["last_pos"] = (x, y)
             state["current_path"].append((x, y))
+
 
 # Globals for testing
 path = []
